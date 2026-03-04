@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "prefix": {
+      "value": "srelab"
+    },
+    "adminUsername": {
+      "value": "azureuser"
+    },
+    "sshPublicKey": {
+      "value": "<YOUR_SSH_PUBLIC_KEY>"
+    },
+    "alertEmail": {
+      "value": "<YOUR_EMAIL_ADDRESS>"
+    },
+    "allowedSshSource": {
+      "value": "<YOUR_PUBLIC_IP>/32"
+    },
+    "vmSize": {
+      "value": "Standard_B2s"
+    }
+  }
+}
