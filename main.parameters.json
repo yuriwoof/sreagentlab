@@ -19,6 +19,18 @@
     },
     "vmSize": {
       "value": "Standard_B2s"
+    },
+    "sreAgentName": {
+      "value": "srelab-agent"
+    },
+    "sreAgentAccessLevel": {
+      "value": "High"
+    },
+    "sreAgentMode": {
+      "value": "Review"
+    },
+    "deployerPrincipalId": {
+      "value": "<YOUR_AZURE_AD_OBJECT_ID>"
     }
   }
 }

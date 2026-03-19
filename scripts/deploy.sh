@@ -57,6 +57,8 @@ fi
 # ---------- Register required resource providers -----------------------------
 info "Registering resource providers..."
 PROVIDERS=(
+  "Microsoft.App"
+  "Microsoft.AlertsManagement"
   "Microsoft.Chaos"
   "Microsoft.Insights"
   "Microsoft.OperationalInsights"
@@ -131,7 +133,8 @@ az deployment group show \
 
 echo ""
 ok "=== Next Steps ==="
-echo "  1. Set up Azure SRE Agent in the portal  → see docs/sre-agent-setup.md"
-echo "  2. Run a Chaos experiment                 → see docs/demo-scenario.md"
-echo "  3. Review runbook template                → see docs/runbook-template.md"
+echo "  1. Enable SRE Agent Preview (if not done)  → see docs/sre-agent-setup.md"
+echo "  2. Configure incident management in portal → see docs/sre-agent-setup.md"
+echo "  3. Run a Chaos experiment                  → see docs/demo-scenario.md"
+echo "  4. Review runbook template                 → see docs/runbook-template.md"
 echo ""

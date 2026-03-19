@@ -41,11 +41,19 @@ resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 }
 
 // ---------------------------------------------------------------------------
-// Ensure built-in Syslog table is provisioned before DCR references it
+// Ensure built-in tables are provisioned before DCR references them
 // ---------------------------------------------------------------------------
 resource syslogTable 'Microsoft.OperationalInsights/workspaces/tables@2022-10-01' = {
   parent: law
   name: 'Syslog'
+  properties: {
+    retentionInDays: 30
+  }
+}
+
+resource perfTable 'Microsoft.OperationalInsights/workspaces/tables@2022-10-01' = {
+  parent: law
+  name: 'Perf'
   properties: {
     retentionInDays: 30
   }
@@ -87,6 +95,8 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
             'syslog'
           ]
           logLevels: [
+            'Notice'
+            'Info'
             'Warning'
             'Error'
             'Critical'
@@ -125,6 +135,7 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
   }
   dependsOn: [
     syslogTable
+    perfTable
   ]
 }
 
@@ -255,9 +266,47 @@ resource memoryAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
 }
 
 // ---------------------------------------------------------------------------
+// Log Alert – Nginx service stopped (Scheduled Query Rule)
+// Queries Syslog for systemd messages indicating nginx has been stopped.
+// ---------------------------------------------------------------------------
+resource nginxStopAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
+  name: '${prefix}-nginx-stop-alert'
+  location: location
+  properties: {
+    description: 'Alert when nginx service is stopped (detected via Syslog)'
+    severity: 1
+    enabled: true
+    evaluationFrequency: 'PT1M'
+    windowSize: 'PT5M'
+    scopes: [
+      law.id
+    ]
+    criteria: {
+      allOf: [
+        {
+          query: 'Syslog | where Facility == "daemon" and SyslogMessage has "nginx" and (SyslogMessage has "Stopped" or SyslogMessage has "stopping" or SyslogMessage has "deactivating" or SyslogMessage has "Deactivated")'
+          timeAggregation: 'Count'
+          operator: 'GreaterThanOrEqual'
+          threshold: 1
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [
+        actionGroup.id
+      ]
+    }
+  }
+  dependsOn: [
+    dcrAssociation
+  ]
+}
+
+// ---------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------
 output lawId string = law.id
 output lawName string = law.name
 output actionGroupId string = actionGroup.id
 output cpuAlertId string = cpuAlert.id
+output nginxStopAlertId string = nginxStopAlert.id

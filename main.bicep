@@ -5,6 +5,7 @@
 //   - Ubuntu Linux VM with nginx + stress-ng
 //   - Log Analytics + Azure Monitor Agent + Metric Alerts
 //   - Chaos Studio targets, capabilities, agent, experiments
+//   - Azure SRE Agent (AI-powered reliability assistant)
 // =============================================================================
 
 targetScope = 'resourceGroup'
@@ -32,6 +33,20 @@ param allowedSshSource string = '*'
 
 @description('VM size (Standard_B2s is cost-effective for demos)')
 param vmSize string = 'Standard_B2s'
+
+@description('Name of the Azure SRE Agent')
+param sreAgentName string = '${prefix}-agent'
+
+@description('SRE Agent access level (High = Contributor, Low = Reader only)')
+@allowed(['High', 'Low'])
+param sreAgentAccessLevel string = 'High'
+
+@description('SRE Agent mode (Review = semi-autonomous, Autonomous = fully automatic, ReadOnly = read only)')
+@allowed(['Review', 'Autonomous', 'ReadOnly'])
+param sreAgentMode string = 'Review'
+
+@description('Object ID (principal ID) of the user deploying this template. Required for SRE Agent portal access.')
+param deployerPrincipalId string
 
 // ===== Modules ===============================================================
 
@@ -86,6 +101,19 @@ module chaos 'modules/chaos.bicep' = {
   ]
 }
 
+// 5) SRE Agent
+module sreAgent 'modules/sre-agent.bicep' = {
+  name: 'deploy-sre-agent'
+  params: {
+    location: location
+    prefix: prefix
+    agentName: sreAgentName
+    accessLevel: sreAgentAccessLevel
+    agentMode: sreAgentMode
+    logAnalyticsWorkspaceId: monitoring.outputs.lawId
+  }
+}
+
 // ===== Role Assignment for Chaos Agent Identity ==============================
 // The User-Assigned Managed Identity used by ChaosLinuxAgent needs Reader role
 // on the target VM to register successfully with Chaos Studio.
@@ -127,6 +155,37 @@ resource serviceStopExpReaderRole 'Microsoft.Authorization/roleAssignments@2022-
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7') // Reader
     principalType: 'ServicePrincipal'
   }
+}
+
+// ===== Role Assignment for Deployer to Access SRE Agent =====================
+// The deploying user needs "SRE Agent Administrator" role to manage incident
+// response plans, create sub-agents, approve actions, and fully operate the agent.
+
+resource sreAgentAdminRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, deployerPrincipalId, 'e79298df-d852-4c6d-84f9-5d13249d1e55')
+  properties: {
+    principalId: deployerPrincipalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'e79298df-d852-4c6d-84f9-5d13249d1e55') // SRE Agent Administrator
+    principalType: 'User'
+  }
+  dependsOn: [
+    sreAgent
+  ]
+}
+
+// ===== Role Assignment for Deployer – Contributor ===========================
+// Contributor role allows the deployer to configure and manage the SRE Agent.
+
+resource deployerContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, deployerPrincipalId, 'b24988ac-6180-42a0-ab88-20f7382dd24c')
+  properties: {
+    principalId: deployerPrincipalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c') // Contributor
+    principalType: 'User'
+  }
+  dependsOn: [
+    sreAgent
+  ]
 }
 
 // ===== Outputs ===============================================================

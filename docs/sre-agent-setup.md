@@ -2,53 +2,76 @@
 
 ## 概要
 
-Bicep によるインフラデプロイ完了後、Azure Portal から SRE Agent を作成し、デモ用リソースグループと接続します。SRE Agent は Azure Monitor アラートと連携し、インシデントの自動検知・調査・修復を行います。
+Bicep テンプレートにより SRE Agent は自動デプロイされます。`main.bicep` の `modules/sre-agent.bicep` モジュールが以下を作成します:
 
-> **前提:** SRE Agent は現在 Preview です。利用には Preview の有効化が必要です。
+- **Azure SRE Agent** (`Microsoft.App/agents`)
+- **Application Insights** (エージェント用)
+- **User-Assigned Managed Identity** (エージェントの認証)
+- **ロール割り当て** (Log Analytics Reader / Reader / Contributor)
 
----
-
-## Step 1: SRE Agent Preview の有効化
-
-1. [Azure SRE Agent ポータル](https://aka.ms/sreagent/portal) にアクセス
-2. Preview 利用規約に同意
-3. サブスクリプションが有効化されるまで待機
-
-> **リージョン:** SRE Agent は現在 **East US 2** リージョンで利用可能です。デプロイ先リージョンもこれに合わせてください。
+デプロイ後、Azure Portal で追加設定を行ってください。
 
 ---
 
-## Step 2: SRE Agent の作成
+## Step 1: SRE Agent の利用要件を確認
 
-1. [Azure Portal](https://portal.azure.com) を開く
-2. 検索バーに「**SRE Agent**」と入力し、サービスを選択
-3. 「**Create**」を選択
-4. 以下の値を入力:
+1. [Azure SRE Agent ポータル](https://aka.ms/sreagent/portal) にアクセスできることを確認
+2. デプロイユーザーに「SRE Agent Standard User」以上の RBAC ロールが必要（Bicep テンプレートで自動割り当て済み）
 
-| 項目 | 値 |
-|------|-----|
-| **Subscription** | お使いのサブスクリプション |
-| **Resource Group** | `rg-sreagent` (エージェント専用。アプリ用RGとは別に作成) |
-| **Agent Name** | `srelab-agent` |
-| **Region** | `East US 2` |
-
-5. 「**Choose resource groups**」を選択
-6. `rg-sreagentlab` (デモ環境のリソースグループ) にチェックを入れる
-7. 「**Save**」→「**Create**」を選択
-
-> **重要:** エージェント自体のリソースグループと、監視対象のリソースグループは分けることを推奨します。
-
-作成が完了すると、以下が自動生成されます:
-
-- Azure Application Insights
-- Log Analytics Workspace
-- Managed Identity
+> **リージョン:** SRE Agent は `eastus2`, `swedencentral`, `uksouth`, `australiaeast` で利用可能です。デプロイ先リージョンもこれに合わせてください。
 
 ---
 
-## Step 3: インシデント管理の設定
+## Step 2: Bicep による SRE Agent のデプロイ
 
-### Azure Monitor Alerts との接続 (デフォルト)
+SRE Agent は `main.bicep` のデプロイに含まれます。`main.parameters.json` で以下のパラメータを設定してください:
+
+| パラメータ | デフォルト値 | 説明 |
+|-----------|------------|------|
+| `sreAgentName` | `srelab-agent` | SRE Agent の名前 |
+| `sreAgentAccessLevel` | `High` | `High` = Contributor 権限 / `Low` = Reader のみ |
+| `sreAgentMode` | `Review` | `Review` = 半自律 / `Autonomous` = 完全自動 / `ReadOnly` = 読み取り専用 |
+
+```bash
+# 通常のデプロイコマンドで SRE Agent も含めてデプロイ
+./scripts/deploy.sh
+```
+
+> **手動で作成する場合:** Azure Portal から SRE Agent を作成する手順は [azure-portal-manual-setup.md](azure-portal-manual-setup.md) を参照してください。
+
+---
+
+## Step 3: 監視対象スコープの確認
+
+SRE Agent が監視するリソースのスコープ（サブスクリプションまたはリソースグループ）を設定する必要があります。Bicep テンプレートでは、デプロイ先のリソースグループが自動的に `managedResources` に登録されます。
+
+### Bicep での設定（自動）
+
+`modules/sre-agent.bicep` の `knowledgeGraphConfiguration.managedResources` にデプロイ先リソースグループの ID が設定されています。
+
+```bicep
+knowledgeGraphConfiguration: {
+  identity: sreIdentity.id
+  managedResources: [
+    resourceGroup().id
+  ]
+}
+```
+
+### Azure Portal での確認・変更
+
+1. Azure Portal で SRE Agent リソース (`srelab-agent`) を開く
+2. 「**Managed scope**」セクションを選択
+3. 監視対象のサブスクリプションまたはリソースグループが正しく登録されていることを確認
+4. 別のリソースグループやサブスクリプションを追加する場合は「**Add scope**」から追加
+
+> **注意:** 監視対象スコープを追加した場合、SRE Agent のマネージド ID に対して対象スコープへの適切なロール割り当て（Reader 以上）が必要です。
+
+---
+
+## Step 4: インシデント管理の設定
+
+### Azure Monitor Alerts との接続
 
 Azure Monitor Alerts はデフォルトで有効です。追加設定は不要です。
 
@@ -61,7 +84,7 @@ SRE Agent が検知するアラート:
 
 ### インシデントレスポンスプランの設定
 
-1. SRE Agent リソースを開く
+1. SRE Agent リソース (`srelab-agent`) を開く
 2. 「**Incident management**」タブを選択
 3. 「**Incident platform**」が「Azure Monitor Alerts」であることを確認
 4. インシデントハンドラーの設定:
@@ -75,7 +98,7 @@ SRE Agent が検知するアラート:
 
 ---
 
-## Step 4: SRE Agent の動作確認
+## Step 5: SRE Agent の動作確認
 
 エージェント作成後、チャット画面で以下を確認:
 
@@ -101,17 +124,17 @@ What alerts should I set up for srelab-vm?
 
 ---
 
-## Step 5: Chaos 実験実行中の SRE Agent 操作
+## Step 6: Chaos 実験実行中の SRE Agent 操作
 
 Chaos 実験を開始した後 (`./scripts/run-chaos.sh cpu`)、以下の流れで SRE Agent と対話します。
 
-### 5-1. アラート発報待ち (約 5 分)
+### 6-1. アラート発報待ち (約 5 分)
 
 CPU が 80% を超え、5 分間の評価ウィンドウを経てアラートが発報されます。
 
 SRE Agent のインシデント管理ダッシュボードにインシデントが表示されるのを確認してください。
 
-### 5-2. 自動調査の確認
+### 6-2. 自動調査の確認
 
 SRE Agent が自動的に以下を実行:
 
@@ -120,7 +143,7 @@ SRE Agent が自動的に以下を実行:
 3. **ログ分析:** Syslog から異常イベントの検索
 4. **根本原因の報告:** "stress-ng プロセスが CPU リソースを大量消費している"
 
-### 5-3. 対話的な追加調査
+### 6-3. 対話的な追加調査
 
 ```text
 srelab-vm のCPUを大量消費しているプロセスのPIDと開始時刻を教えてください。
@@ -134,7 +157,7 @@ srelab-vm のCPUを大量消費しているプロセスのPIDと開始時刻を�
 nginx サービスは正常に稼働していますか？ HTTP レスポンスに影響はありますか？
 ```
 
-### 5-4. 修復の実行
+### 6-4. 修復の実行
 
 ```text
 stress-ng プロセスを停止して、CPU 使用率を正常に戻してください。
@@ -144,7 +167,7 @@ stress-ng プロセスを停止して、CPU 使用率を正常に戻してくだ
 
 ---
 
-## Step 6: Runbook 生成の指示
+## Step 7: Runbook 生成の指示
 
 すべての調査・修復が完了したら、以下のプロンプトで Runbook を生成させます:
 
@@ -186,9 +209,10 @@ stress-ng プロセスを停止して、CPU 使用率を正常に戻してくだ
 | 対象 | 必要なロール | 割り当て先 |
 |------|------------|----------|
 | デプロイ実行者 | Contributor + User Access Administrator | サブスクリプション |
+| デプロイ実行者 | SRE Agent Standard User | SRE Agent リソース (自動割り当て) |
 | Chaos Experiment (システム割り当て ID) | Reader | ターゲット VM |
-| Chaos Agent (ユーザー割り当て ID) | (自動設定) | ターゲット VM |
-| SRE Agent (マネージド ID) | (自動設定) | 監視対象リソースグループ |
+| Chaos Agent (ユーザー割り当て ID) | Reader (自動設定) | ターゲット VM |
+| SRE Agent (マネージド ID) | Reader / Log Analytics Reader / Contributor | 監視対象リソースグループ (自動設定) |
 
 ---
 
