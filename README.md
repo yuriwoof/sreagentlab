@@ -6,15 +6,9 @@ Azure SRE Agent と Chaos Studio を使い、Windows Server 2022 の IIS を調�
 
 ## 構成
 
-```text
-ブラウザ → Application Gateway Standard_v2 (Public IP、HTTP :80)
-                ↓ 専用サブネット 10.0.2.0/24
-           VM 用 NSG → Windows IIS VM × 2 (10.0.1.0/24)
-                          ├─ 共有ユーザー割り当て ID → ChaosWindowsAgent
-                          ├─ VM ごとのシステム割り当て ID → AMA → Perf / Event → Log Analytics
-                          └─ NAT Gateway → Azure 拡張機能などへの外向き通信
-Azure Monitor メトリクス / アラート → SRE Agent、Azure Workbook
-```
+[![SRE Agent Lab の Azure 構成図](docs/architecture.svg)](docs/architecture.drawio)
+
+画像をクリックすると、draw.io で編集できる元図を開けます。
 
 VM の Public IP は既定で作成しません。
 NAT Gateway の Public IP は外向き通信専用であり、VM への受信接続には使用できません。
@@ -39,7 +33,7 @@ RDP が必要な場合だけ `enableRdpPublicIp=true` と、実際の接続元�
 | 5 | ディスク IO 圧迫 | Chaos: `run-chaos.sh diskio`、vm-01 / 10 分 | IOPS 消費率とキュー増大、遅延の可能性 | OS ディスク制約と VM 制約の切り分け | `run-chaos.sh stop diskio`、IO と HTTP を確認 |
 | 6 | App Gateway プローブ誤設定 | Script: `break-appgw-probe.sh`、`/health.htm` → `/healthz` | 全バックエンド Unhealthy、502 | 正常な IIS と誤ったプローブパスを切り分け | `fix-appgw-probe.sh`、Healthy と HTTP 200 を確認 |
 | 7 | 定期タスク | 障害注入なし、ポータルで日次タスクを作成 | コストと変更履歴のレポート | 読み取り専用で要約し、根拠と未取得データを示す | デモ用タスクを無効化または削除 |
-| 8 | ライブレポート | 障害注入なし、Workbook とチャットを開く | 全 VM と Gateway の状態を一覧化 | 直近 30 分の指標、アラート、原因候補と証拠を報告 | レポートを閉じる（復旧操作なし） |
+| 8 | ライブレポート | 障害注入なし、SRE Agent の **ライブ レポート** で状態ダッシュボードをチャットから作成 | 全 VM と Gateway のメトリクス、IIS 停止イベント、実験履歴、アラートを保存済みレポートで一覧化 | 読み取り専用ツールでレポートを作成・保存し、再読み込みで最新化。チャットで直近 30 分の原因候補と証拠を報告 | 不要ならレポートを削除（復旧操作なし） |
 
 NSG の手動版 `ManualDenyAppGatewayHTTP` と Chaos 版 `ChaosDenyAppGatewayHTTP` は、どちらも優先度 100 を使用します。
 **同時に実行せず、SRE Agent の手動修復デモには手動版を選ぶか、Chaos を停止してから調査結果を再確認します。**
@@ -95,10 +89,11 @@ Windows ではプライベートな NTFS 作業フォルダーを使用し、フ
 | `PARAMETERS_FILE` | 明示指定が優先。未指定なら `main.parameters.local.json`、なければ `main.parameters.json` |
 | `DEPLOYMENT_NAME` | 必要時のみ指定。運用スクリプトは未指定なら成功した main デプロイを outputs から自動検出 |
 
-デプロイ後に表示される **Gateway URL** と **Workbook リンク**を開きます。
+デプロイ後に表示される **Gateway URL** と **SRE Agent のリンク**を開きます。
 IIS ページにはホスト名と VM ごとに異なる背景色が表示されます。
 繰り返し更新して両 VM の応答を確認してください。
 Cookie affinity は無効ですが、リクエストごとに必ず交互に表示される保証はありません。
+続いて SRE Agent の **ライブ レポート** で状態ダッシュボードを作成します（[ライブレポート](docs/live-report.md)）。
 
 ```bash
 bash scripts/run-chaos.sh cpu          # start cpu の短縮形
@@ -116,7 +111,7 @@ main.bicep / main.parameters.json
 modules/
   network.bicep / vm.bicep / appgw.bicep
   monitoring.bicep / chaos.bicep / sre-agent.bicep
-  dashboard.bicep / activity-log.bicep
+  activity-log.bicep
 scripts/
   setup-iis.ps1 / common.sh / deploy.sh / run-chaos.sh
   break-nsg.sh / fix-nsg.sh
@@ -130,10 +125,12 @@ docs/
 
 ## 監視とコストの注意
 
-Workbook はプラットフォーム指標を Azure Monitor から直接取得し、ゲストの `Perf` / `Event` を Log Analytics から取得します。
+状態ダッシュボードには、SRE Agent の[ライブレポート (プレビュー)](https://learn.microsoft.com/azure/sre-agent/live-reports)を使用します。
+ライブレポートはデプロイ後にエージェントのポータルでチャットから作成するもので、Bicep ではデプロイしません（Azure Monitor ブックは使用しません）。
+エージェントは組み込みの Azure Monitor メトリクスと、LAW に取り込んだゲストの `Perf` / `Event` を使ってレポートを表示します。
 App Gateway の診断設定は `AllMetrics` のみで、アクセスログなどの有効化は不要です。
-既定の過去 1 時間に対し、開くたびに **Auto refresh → 1 minute** を選びます。
-更新間隔は Workbook に保存できません。
+レポートは最大 5 分間キャッシュされた結果を表示する場合があるため、デモ中は **再読み込み** を選びます。
+レポートの作成と更新は AAU を消費します。データ取得だけの再読み込みは AAU を消費しませんが、モデルによる要約を含めると再読み込みのたびに消費します。
 実験開始履歴の `AzureActivity` は、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。
 手順と権限は[ライブレポート](docs/live-report.md)と[定期タスク](docs/scheduled-tasks.md)を参照してください。
 
@@ -174,4 +171,4 @@ python3 -m unittest discover -s tests -v
 - [Runbook と承認付き修復](docs/runbook-template.md)
 - [Windows 構成のポータル手動構築](docs/azure-portal-manual-setup.md)
 - [毎朝 9 時 JST の定期タスク](docs/scheduled-tasks.md)
-- [Workbook とライブレポート](docs/live-report.md)
+- [SRE Agent のライブレポート](docs/live-report.md)

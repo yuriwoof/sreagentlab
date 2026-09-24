@@ -180,17 +180,16 @@ SecurityRule 1.0 は既存フローを切断しません。
 現在の公式資料ではこのラボの `Microsoft.Chaos/experiments` モデルを **Experiments (classic)** と分類しています。
 新しい Workspaces の Scenario と同じ API や障害パラメータだと仮定しないでください。
 
-## 8. SRE Agent と Workbook
+## 8. SRE Agent とライブレポート
 
 [SRE Agent 手順](sre-agent-setup.md)に従い、管理リソースへ対象 RG を登録します。
-Application Gateway と Workbook も同じ RG の管理対象として確認します。
+Application Gateway も同じ RG の管理対象として確認します。
 読み取り専用では Low / ReadOnly、承認付き修復では対象を限定した Review 運用を選びます。
 
-手動で Workbook を作る場合、Azure Monitor の Workbooks で新規ブックを作成し、全 VM と Gateway のメトリクス、LAW の `Perf` / `Event` クエリを追加します。
-`dashboard.bicep` の各パネルと[ライブレポート](live-report.md)の一覧を照合して保存します。
-Bicep の `serializedData` はデプロイ時に ID を解決するため、Bicep ソース全体を Workbook の JSON として貼り付けないでください。
-既定期間は過去 1 時間にし、読み取りモードで毎回 **Auto refresh → 1 minute** を選びます。
-更新間隔は保存されません。
+状態ダッシュボードは Azure Monitor ブックではなく、SRE Agent の **ライブ レポート (プレビュー)** で作成します。
+エージェントのナビゲーションで **ライブ レポート** → **+ 新しいレポート** を選び、[ライブレポート](live-report.md)のプロンプト例をチャットに入力します。
+使用ツールの確認では読み取り専用のツールだけを承認し、レポートがギャラリーに保存されたことを確認します。
+レポートの作成には、利用者にエージェントの読み書き権限（SRE Agent Standard User 以上）が必要です。
 
 実験開始履歴と変更履歴が必要な場合は、管理者がサブスクリプションの Activity Log に診断設定を作成し、LAW へ送ります。
 この操作は任意であり、通常の RG デプロイとは権限も削除範囲も異なります。
@@ -202,7 +201,7 @@ Cost Management の読み取り権限も別途確認します。
 - [ ] VM Public IP はなし、または承認済みの限定 RDP 用だけ。
 - [ ] NAT による外向き通信があり、IIS、AMA、Chaos 拡張機能が正常。
 - [ ] Gateway 経由で両 VM のページが表示され、全バックエンドが Healthy。
-- [ ] `Perf` / `Event` が取り込まれ、Workbook のデータ欠損とゼロを区別できる。
+- [ ] `Perf` / `Event` が取り込まれ、ライブレポートでデータ欠損とゼロを区別できる。
 - [ ] 実験 ID の権限は対象 VM / NSG に限定されている。
 - [ ] [デモ手順](demo-scenario.md)に従って 1 障害ずつ検証する。
 
@@ -213,8 +212,9 @@ VM の停止だけでは Gateway、NAT、Public IP、ディスク等の費用が
 ## API と参照元
 
 実装は対応するサービスで 2024 年以降の API を優先します。
-ただし、メトリクスアラート `2018-03-01`、診断設定 `2021-05-01-preview`、Workbook `2023-06-01`、RBAC `2022-04-01`、マネージド ID `2023-01-31`、Application Insights `2020-02-02` は、実装が使用する対応スキーマを維持しています。
-SRE Agent 用の Smart Detector `2021-04-01` と付随する Action Group `2023-09-01-preview` も既存スキーマを維持しています。
+ただし、メトリクスアラート `2018-03-01`、診断設定 `2021-05-01-preview`、RBAC `2022-04-01`、Application Insights `2020-02-02` は、実装が使用する対応スキーマを維持しています。
+SRE Agent 用の Smart Detector `2021-04-01` も既存スキーマを維持しています。
+ライブレポートは SRE Agent ポータルの機能であり、ARM の API バージョンはありません。
 古い日付という理由だけで、存在しない API バージョンへ置換しません。
 SRE Agent は `2025-05-01-preview` であり、Preview の契約変更を確認してから更新します。
 

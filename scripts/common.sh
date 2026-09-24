@@ -73,10 +73,10 @@ try:
         o=p.get("outputs") or {}
         return (p.get("provisioningState","").lower()=="succeeded"
             and isinstance(o.get("experimentNames",{}).get("value"),dict)
-            and isinstance(o.get("workbookId",{}).get("value"),str)
-            and bool(o["workbookId"]["value"].strip()))
+            and isinstance(o.get("sreAgentPortalUrl",{}).get("value"),str)
+            and bool(o["sreAgentPortalUrl"]["value"].strip()))
     rows=[d for d in rows if main(d)]
-    if not rows: raise ValueError("No successful main deployment with experimentNames and workbookId outputs; set DEPLOYMENT_NAME to a valid main deployment.")
+    if not rows: raise ValueError("No successful main deployment with experimentNames and sreAgentPortalUrl outputs; set DEPLOYMENT_NAME to a valid main deployment.")
     print(json.dumps(max(rows,key=lambda d:d["properties"].get("timestamp",""))))
 except (ValueError,KeyError,TypeError,AttributeError) as e: sys.exit(str(e))
 ')" || die "Main deployment selection failed."

@@ -35,8 +35,7 @@ def bash_path(path):
 def deployment(name="actual-main", timestamp="2026-01-01T00:00:00Z"):
     outputs = {
         "experimentNames": {key: "actual-" + key for key in ("cpu", "memory", "iis", "diskio", "nsg")},
-        "workbookId": SCOPE + "/providers/Microsoft.Insights/workbooks/actual",
-        "workbookUrl": "https://portal.azure.com/#actual-workbook",
+        "sreAgentPortalUrl": "https://portal.azure.com/#actual-agent",
         "appGwName": "actual-gateway",
         "appGwPublicIp": "192.0.2.10",
         "probeName": "actual-probe",
@@ -239,7 +238,7 @@ class ScriptTests(unittest.TestCase):
 
     def test_select_latest_successful_main_not_nested_or_failed(self):
         nested = deployment("deploy-chaos", "2029")
-        del nested["properties"]["outputs"]["workbookId"]
+        del nested["properties"]["outputs"]["sreAgentPortalUrl"]
         failed = deployment("failed-main", "2030")
         failed["properties"]["provisioningState"] = "Failed"
         newest = deployment("latest-main", "2028")
@@ -257,7 +256,7 @@ class ScriptTests(unittest.TestCase):
         self.assertEqual(self.calls(["deployment", "group", "list"]), [])
 
     def test_query_failure_empty_invalid_or_wrong_scope_never_injects(self):
-        for mode in ("failed-query", "empty", "failed-main", "wrong-scope", "bad-workbook", "bad-name"):
+        for mode in ("failed-query", "empty", "failed-main", "wrong-scope", "bad-agent-url", "bad-name"):
             with self.subTest(mode=mode):
                 self.config["deployments"] = [deployment()]
                 self.config.pop("fail", None)
@@ -269,8 +268,8 @@ class ScriptTests(unittest.TestCase):
                     self.config["deployments"][0]["properties"]["provisioningState"] = "Failed"
                 elif mode == "wrong-scope":
                     self.config["deployments"][0]["id"] = "/subscriptions/other/deployments/main"
-                elif mode == "bad-workbook":
-                    self.config["deployments"][0]["properties"]["outputs"]["workbookId"]["value"] = {}
+                elif mode == "bad-agent-url":
+                    self.config["deployments"][0]["properties"]["outputs"]["sreAgentPortalUrl"]["value"] = {}
                 else:
                     self.config["deployments"][0]["properties"]["outputs"]["experimentNames"]["value"]["cpu"] = "$(touch injected)"
                 result = self.run_script("run-chaos.sh", "cpu")
@@ -417,7 +416,8 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("Microsoft.Portal", " ".join(" ".join(c["args"]) for c in self.calls(["provider"])))
         self.assertEqual(self.calls(["role"]), [])
         self.assertIn("http://192.0.2.10", result.stdout)
-        self.assertIn("https://portal.azure.com/#actual-workbook", result.stdout)
+        self.assertIn("https://portal.azure.com/#actual-agent", result.stdout)
+        self.assertIn("Live Reports", result.stdout)
 
     def test_deploy_failure_discards_secret_bearing_stderr_and_files(self):
         self.config["fail"] = ["deployment", "group", "create"]

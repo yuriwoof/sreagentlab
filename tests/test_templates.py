@@ -145,18 +145,18 @@ class TemplateTests(unittest.TestCase):
         self.assertNotIn("logs", diagnostic)
         self.assertEqual(diagnostic["metrics"], [{"category": "AllMetrics", "enabled": True}])
 
-    def test_workbook_and_subscription_boundary(self):
-        dashboard = self.module("dashboard")
-        variables = dashboard["variables"]
-        self.assertEqual(len(variables["vmMetricDefinitions"]), 5)
-        self.assertEqual(len(variables["appGwMetricDefinitions"]), 5)
-        self.assertEqual(len(variables["logItems"]), 3)
-        self.assertIn("TimeRange", variables["availableMemoryQuery"])
-        self.assertIn("Microsoft.Chaos/experiments/start/action", variables["chaosStartQuery"])
-        self.assertIn("ServiceState", variables["serviceStopQuery"])
+    def test_live_report_sources_and_subscription_boundary(self):
+        # Live reports are an SRE Agent portal feature; no workbook is deployed.
+        self.assertNotIn("dashboard", self.main["resources"])
+        self.assertNotIn("workbookId", self.main["outputs"])
+        dcr = self.module("monitoring")["resources"]["dcr"]["properties"]["dataSources"]
+        counters = dcr["performanceCounters"][0]["counterSpecifiers"]
+        for counter in ("\\Memory\\Available Bytes", "\\Network Interface(*)\\Bytes Received/sec",
+                        "\\Network Interface(*)\\Bytes Sent/sec"):
+            self.assertIn(counter, counters)
         self.assertNotIn("activityLog", self.main["resources"])
         self.assertIn("subscriptionDeploymentTemplate", self.templates["activity"]["$schema"])
-        self.assertTrue({"workbookId", "workbookUrl", "appGwPublicIp", "experimentNames"} <= self.main["outputs"].keys())
+        self.assertTrue({"sreAgentPortalUrl", "sreAgentName", "appGwPublicIp", "experimentNames"} <= self.main["outputs"].keys())
 
 
 if __name__ == "__main__":

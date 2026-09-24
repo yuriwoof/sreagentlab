@@ -9,7 +9,7 @@
 | フェーズ | 対象 | 方針 |
 |---|---|---|
 | 1 | main.bicep、main.parameters.json、modules/network.bicep、modules/vm.bicep、modules/appgw.bicep、scripts/setup-iis.ps1 | Windows VM 配列、IIS、App Gateway、任意 RDP、共通タグ、明示的な NAT 外向き通信。既存 monitoring/chaos の Windows 化と複数 VM の接続も含む |
-| 2 | modules/chaos.bicep、modules/monitoring.bicep、modules/dashboard.bicep、modules/activity-log.bicep、modules/sre-agent.bicep、main.bicep | 公式フォールト、VM スコープ RBAC、NSG スコープ RBAC、Windows DCR、VM/App GW アラート、Workbook、独立したサブスクリプション診断設定 |
+| 2 | modules/chaos.bicep、modules/monitoring.bicep、modules/activity-log.bicep、modules/sre-agent.bicep、main.bicep | 公式フォールト、VM スコープ RBAC、NSG スコープ RBAC、Windows DCR、VM/App GW アラート、独立したサブスクリプション診断設定 |
 | 3 | scripts/*.sh、README.md、docs/demo-scenario.md、docs/runbook-template.md、docs/sre-agent-setup.md、docs/azure-portal-manual-setup.md、docs/scheduled-tasks.md、docs/live-report.md、.gitignore、tests/ | 入力秘匿、出力からのリソース解決、start/status/stop、障害と復旧の対、限定されたクリーンアップ、日本語手順、スクリプトと生成 ARM の検証 |
 
 各フェーズ終了時に `az bicep build --file main.bicep` を実行する。
@@ -20,7 +20,8 @@
 - 指定 Windows Server イメージの OS ディスクは縮小不可。P4/E4 の 32 GiB を強制せず、イメージ最小容量の Standard_LRS とキャッシュ無効で IO 制限を観察する。VM はストレージ制限の観測に適した Standard_D2s_v5 を推奨する。
 - VM に公開 IP を付けない既定構成では、AMA/Chaos Agent 用に NAT Gateway + 外向き専用 Public IP を追加する。受信公開は App Gateway のみ。
 - App Gateway の cookie affinity 無効化は厳密な交互応答を保証しない。複数回更新して両 VM が観測できることを確認する。
-- App Gateway 診断設定は要件の「AccessLog / PerformanceLog / FirewallLog は不要」に従い AllMetrics を Log Analytics に送る。Workbook のメトリックは Azure Monitor を直接参照する。
+- App Gateway 診断設定は要件の「AccessLog / PerformanceLog / FirewallLog は不要」に従い AllMetrics を Log Analytics に送る。
+- ライブレポートは Azure Monitor ブックではなく SRE Agent のライブ レポート (プレビュー) 機能。ポータルでチャットから作成するため IaC 化せず、docs/live-report.md に作成手順とプロンプトを記載する。
 - NSG v1.0 フォールトは既存接続を即時切断しない。このため 502 まで遅延し得ることを明記する。
 - tags をサポートする全リソースへ共通タグを適用する。子リソースや RBAC など tags 非対応の API は除外する。
 - API は 2024 年以降の安定版を優先し、新しい安定版がないリソースは既存のサポート済みバージョンを維持する。
@@ -33,7 +34,7 @@
 - フェーズ 2: `az bicep build --file main.bicep`、独立した Activity Log テンプレートのビルド成功。
 - フェーズ 3: `az bicep build --file main.bicep` 成功。Bash 操作のモックテスト 26 件成功。
 - OS ディスクにもタグ拡張リソースで共通タグを適用。生成 ARM の回帰テスト 9 件成功（計 35 件）。
-- Workbook の自動更新間隔は保存できないという公式仕様に従い、開くたびに 1 分の自動更新を選択する手順を記載する。
+- ライブレポートを SRE Agent の機能に修正: Workbook モジュールと出力を削除し、スクリプトの main デプロイ判定を `sreAgentPortalUrl` 出力に変更。DCR に Network Interface カウンターを追加。`az bicep build`、テンプレートテスト 9 件、スクリプトテスト 26 件成功。
 
 ## All validation checks pass
 

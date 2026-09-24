@@ -135,5 +135,6 @@ SECURE_FILE=''; ERROR_FILE=''
 load_deployment
 ok "Deployment completed: $DEPLOYMENT_NAME"
 info "App Gateway: http://$(output appGwPublicIp)"
-info "Workbook: $(output workbookUrl)"
+info "SRE Agent: $(output sreAgentPortalUrl)"
+info "Live report: open the agent, select Live Reports > + New report (see docs/live-report.md)."
 verify_commands

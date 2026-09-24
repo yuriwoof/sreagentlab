@@ -9,7 +9,8 @@ preflight
 load_deployment
 activity_context
 STATE="$(activity_state cleanup)" || die "Cannot safely identify lab diagnostics; nothing deleted."
-warn "Permanently delete RG '$RESOURCE_GROUP' (VMs, App Gateway, NAT, workbook, workspace and all other resources)."
+warn "Permanently delete RG '$RESOURCE_GROUP' (VMs, App Gateway, NAT, SRE Agent, workspace and all other resources)."
+warn "Downloaded live report HTML snapshots are local files and are not deleted by this script."
 warn "Subscription '$SUBSCRIPTION_ID': delete ONLY '$DIAGNOSTIC_NAME' if it targets '$LAW_ID' (currently $STATE)."
 read -rp "Type the resource group name to confirm BOTH deletions: " CONFIRM
 [[ "$CONFIRM" == "$RESOURCE_GROUP" ]] || { info "Aborted."; exit 0; }

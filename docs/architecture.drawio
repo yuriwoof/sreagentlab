@@ -1,0 +1,112 @@
+<mxfile host="app.diagrams.net" modified="2026-09-24T00:00:00.000Z" agent="GitHub Copilot" version="24.7.17" type="device">
+  <diagram id="sre-agent-lab" name="Architecture">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1280" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="SRE Agent Lab - Azure 構成" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=26;fontStyle=1;fontColor=#172B4D;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="600" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="利用者&lt;br&gt;&lt;b&gt;ブラウザー&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0078D4;strokeWidth=2;fontColor=#172B4D;fontSize=14;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="150" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="azure" value="Azure リソース グループ" style="swimlane;html=1;startSize=36;horizontal=1;rounded=1;arcSize=4;fillColor=#F7F9FC;swimlaneFillColor=#E8F3FC;strokeColor=#0078D4;strokeWidth=2;fontColor=#172B4D;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="210" y="70" width="760" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="vnet" value="Virtual Network  10.0.0.0/16" style="swimlane;html=1;startSize=30;horizontal=1;rounded=1;arcSize=4;fillColor=#FFFFFF;swimlaneFillColor=#EAF7EF;strokeColor=#107C10;strokeWidth=2;fontColor=#172B4D;fontSize=14;fontStyle=1;" vertex="1" parent="azure">
+          <mxGeometry x="25" y="55" width="710" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="appgwSubnet" value="Application Gateway subnet  10.0.2.0/24" style="swimlane;html=1;startSize=28;horizontal=1;rounded=1;arcSize=4;fillColor=#F5FBFF;swimlaneFillColor=#DCEFFC;strokeColor=#0078D4;fontColor=#172B4D;fontSize=13;fontStyle=1;" vertex="1" parent="vnet">
+          <mxGeometry x="20" y="45" width="260" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="appgw" value="&lt;b&gt;Application Gateway&lt;/b&gt;&lt;br&gt;Standard_v2&lt;br&gt;Public IP / HTTP :80&lt;br&gt;Probe: /health.htm" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0078D4;strokeColor=#005A9E;strokeWidth=2;fontColor=#FFFFFF;fontSize=14;arcSize=6;" vertex="1" parent="appgwSubnet">
+          <mxGeometry x="30" y="65" width="200" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="appgwNsg" value="App Gateway NSG" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0078D4;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="appgwSubnet">
+          <mxGeometry x="55" y="180" width="150" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="vmSubnet" value="VM subnet  10.0.1.0/24" style="swimlane;html=1;startSize=28;horizontal=1;rounded=1;arcSize=4;fillColor=#FFFDF7;swimlaneFillColor=#FFF3D6;strokeColor=#D68A00;fontColor=#172B4D;fontSize=13;fontStyle=1;" vertex="1" parent="vnet">
+          <mxGeometry x="310" y="45" width="375" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="vmNsg" value="VM NSG&lt;br&gt;App Gateway から HTTP :80 のみ許可" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D68A00;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="vmSubnet">
+          <mxGeometry x="35" y="43" width="305" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="vm1" value="&lt;b&gt;Windows Server 2022 VM 01&lt;/b&gt;&lt;br&gt;IIS / AMA / Chaos Agent&lt;br&gt;System ID + shared User ID" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4CE;strokeColor=#D68A00;strokeWidth=2;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="vmSubnet">
+          <mxGeometry x="25" y="105" width="155" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="vm2" value="&lt;b&gt;Windows Server 2022 VM 02&lt;/b&gt;&lt;br&gt;IIS / AMA / Chaos Agent&lt;br&gt;System ID + shared User ID" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4CE;strokeColor=#D68A00;strokeWidth=2;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="vmSubnet">
+          <mxGeometry x="195" y="105" width="155" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="nat" value="NAT Gateway&lt;br&gt;外向き通信専用 Public IP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#107C10;strokeWidth=2;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="vnet">
+          <mxGeometry x="430" y="282" width="220" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="internet" value="Azure 拡張機能など&lt;br&gt;外向き通信" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#107C10;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry x="800" y="520" width="170" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="chaos" value="&lt;b&gt;Azure Chaos Studio&lt;/b&gt;&lt;br&gt;CPU / Memory / IIS / Disk IO&lt;br&gt;NSG Security Rule" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDE7E9;strokeColor=#D13438;strokeWidth=2;fontColor=#172B4D;fontSize=13;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="145" width="210" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="observability" value="監視・運用" style="swimlane;html=1;startSize=34;horizontal=1;rounded=1;arcSize=4;fillColor=#FFFFFF;swimlaneFillColor=#F1ECF7;strokeColor=#8764B8;strokeWidth=2;fontColor=#172B4D;fontSize=15;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="210" y="610" width="1000" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="monitor" value="&lt;b&gt;Azure Monitor&lt;/b&gt;&lt;br&gt;VM / Gateway metrics&lt;br&gt;Alerts + Action Group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8764B8;strokeWidth=2;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="observability">
+          <mxGeometry x="30" y="50" width="190" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="law" value="&lt;b&gt;Log Analytics Workspace&lt;/b&gt;&lt;br&gt;Perf / Event&lt;br&gt;App Gateway AllMetrics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8764B8;strokeWidth=2;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="observability">
+          <mxGeometry x="250" y="50" width="205" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="liveReports" value="&lt;b&gt;Live Reports (preview)&lt;/b&gt;&lt;br&gt;SRE Agent 内で作成・再読み込み" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8764B8;strokeWidth=2;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="observability">
+          <mxGeometry x="485" y="50" width="165" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="sre" value="&lt;b&gt;Azure SRE Agent&lt;/b&gt;&lt;br&gt;Review / High&lt;br&gt;調査・復旧提案" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F3FC;strokeColor=#0078D4;strokeWidth=2;fontColor=#172B4D;fontSize=13;arcSize=6;" vertex="1" parent="observability">
+          <mxGeometry x="680" y="50" width="180" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="appinsights" value="Application Insights&lt;br&gt;Agent telemetry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#8764B8;fontColor=#172B4D;fontSize=12;arcSize=6;" vertex="1" parent="observability">
+          <mxGeometry x="890" y="50" width="85" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="e-browser-appgw" value="HTTP :80" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;endArrow=block;endFill=1;fontSize=12;" edge="1" parent="1" source="browser" target="appgw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-appgw-vm1" value="HTTP :80" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="appgw" target="vm1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-appgw-vm2" value="HTTP :80" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="appgw" target="vm2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-vm-nat" value="Outbound" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#107C10;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="vm2" target="nat">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-nat-internet" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#107C10;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="nat" target="internet">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-chaos-vms" value="障害注入" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 4;strokeColor=#D13438;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="chaos" target="vm2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-chaos-nsg" value="NSG fault" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 4;strokeColor=#D13438;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="chaos" target="vmNsg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-vm-law" value="AMA / DCR" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8764B8;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="vm1" target="law">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-appgw-monitor" value="Metrics" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8764B8;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="appgw" target="monitor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-monitor-live-reports" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8764B8;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="monitor" target="liveReports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-law-live-reports" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8764B8;strokeWidth=2;endArrow=block;endFill=1;" edge="1" parent="1" source="law" target="liveReports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-law-sre" value="Query" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="law" target="sre">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-sre-rg" value="Reader / Contributor" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=6 4;strokeColor=#0078D4;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="sre" target="azure">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-sre-ai" value="Telemetry" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8764B8;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" edge="1" parent="1" source="sre" target="appinsights">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

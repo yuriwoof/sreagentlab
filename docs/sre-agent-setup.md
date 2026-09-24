@@ -7,7 +7,7 @@ VM の共有 Chaos ID と SRE Agent の ID は別の用途です。
 VM ごとのシステム割り当て ID は Azure Monitor Agent（AMA）が使用します。
 
 SRE Agent の `knowledgeGraphConfiguration.managedResources` には、デプロイ先 RG の ID を登録します。
-その RG の Windows VM、NSG、Application Gateway、Log Analytics、Workbook が対象です。
+その RG の Windows VM、NSG、Application Gateway、Log Analytics が対象です。
 RG 内のリソースが対象であることは、サブスクリプション全体の操作権限を意味しません。
 
 ## モードと権限
@@ -16,8 +16,8 @@ RG 内のリソースが対象であることは、サブスクリプション�
 |---|---|---|
 | `sreAgentAccessLevel` | `High` | SRE ID に対象 RG の Contributor を追加 |
 | `sreAgentMode` | `Review` | 修復提案を確認し、承認後に実行するデモ |
-| 読み取り専用の組み合わせ | `Low` / `ReadOnly` | ライブレポートや調査のみ |
-| `deployerPrincipalId` | 実行者のユーザーオブジェクト ID | 利用者の SRE Agent アクセス権を設定 |
+| 読み取り専用の組み合わせ | `Low` / `ReadOnly` | 調査と読み取り専用のライブレポートのみ |
+| `deployerPrincipalId` | 実行者のユーザーオブジェクト ID | 利用者に SRE Agent Administrator を割り当て（ライブレポートの作成・削除を含む） |
 
 `High` と `Review` は権限の最小化そのものではありません。
 実装では RG スコープの Contributor を付与するため、読み取り中心のデモでは `Low` / `ReadOnly` を検討します。
@@ -47,7 +47,7 @@ NSG 修復は対象 NSG、プローブ修復は対象 Gateway に限定します
 
 ```text
 管理対象リソースの ID を一覧にしてください。
-対象 RG 内の全 Windows VM、Application Gateway、NSG、Log Analytics、Workbook を確認し、
+対象 RG 内の全 Windows VM、Application Gateway、NSG、Log Analytics を確認し、
 現在取得できるメトリクスと不足している権限を説明してください。
 リソース変更や権限追加はしないでください。
 ```
@@ -71,7 +71,14 @@ SRE Agent の利用可能リージョンや利用要件は[公式概要](https:/
 
 IIS イベントの状態文字列は、このラボで使用する英語 Windows イメージを前提にしています。
 App Gateway の診断設定は `AllMetrics` のみであり、アクセスログやファイアウォールログを追加する必要はありません。
-Workbook のメトリクス表示はその診断設定ではなく Azure Monitor の直接クエリを使用します。
+SRE Agent のライブレポートでは、Gateway の 5xx の内訳などディメンション付きの値を Azure Monitor メトリクスから取得します（`AzureMetrics` テーブルにはディメンションが含まれません）。
+
+## ライブレポート
+
+状態ダッシュボードは SRE Agent の **ライブ レポート (プレビュー)** で作成します。
+ライブレポートはエージェントのポータルでチャットから作成・保存する機能で、Bicep ではデプロイしません。
+作成、共有、再読み込み、コストは[ライブレポート](live-report.md)を参照してください。
+共有先の利用者にも SRE Agent Standard User 以上のロールが必要です。
 
 Azure Monitor のアラート作成と、SRE Agent での自動インシデント対応は別に確認します。
 利用環境の[公式インシデント対応ガイド](https://learn.microsoft.com/azure/sre-agent/overview)から現在の接続設定を確認し、発報済みアラートが対象エージェントで扱えるか試してください。

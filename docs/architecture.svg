@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">SRE Agent Lab Azure 構成</title>
+  <desc id="desc">Application Gateway、Windows IIS VM、Azure Monitor、Chaos Studio、Azure SRE Agent の構成図</desc>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#0078d4"/></marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#107c10"/></marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#d13438"/></marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#8764b8"/></marker>
+    <style>
+      text { font-family: "Segoe UI", "Yu Gothic UI", sans-serif; fill: #172b4d; }
+      .heading { font-size: 24px; font-weight: 700; }
+      .section { font-size: 15px; font-weight: 700; }
+      .label { font-size: 13px; font-weight: 700; }
+      .small { font-size: 11px; }
+      .tiny { font-size: 10px; }
+      .box { stroke-width: 2; rx: 6; }
+      .edge { fill: none; stroke-width: 2; }
+      .dash { stroke-dasharray: 7 5; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="760" fill="#ffffff"/>
+  <text x="30" y="38" class="heading">SRE Agent Lab - Azure 構成</text>
+
+  <rect x="25" y="135" width="125" height="66" class="box" fill="#ffffff" stroke="#0078d4"/>
+  <text x="87" y="160" text-anchor="middle" class="small">利用者</text>
+  <text x="87" y="180" text-anchor="middle" class="label">ブラウザー</text>
+
+  <rect x="185" y="65" width="765" height="435" rx="8" fill="#f7f9fc" stroke="#0078d4" stroke-width="2"/>
+  <rect x="185" y="65" width="765" height="36" rx="8" fill="#e8f3fc"/>
+  <path d="M185 101 H950" stroke="#0078d4" stroke-width="2"/>
+  <text x="205" y="89" class="section">Azure リソース グループ</text>
+
+  <rect x="210" y="120" width="715" height="345" rx="7" fill="#ffffff" stroke="#107c10" stroke-width="2"/>
+  <rect x="210" y="120" width="715" height="30" rx="7" fill="#eaf7ef"/>
+  <path d="M210 150 H925" stroke="#107c10" stroke-width="2"/>
+  <text x="227" y="141" class="label">Virtual Network  10.0.0.0/16</text>
+
+  <rect x="230" y="165" width="260" height="230" rx="6" fill="#f5fbff" stroke="#0078d4" stroke-width="1.5"/>
+  <rect x="230" y="165" width="260" height="28" rx="6" fill="#dceffc"/>
+  <text x="245" y="184" class="small" font-weight="700">Application Gateway subnet  10.0.2.0/24</text>
+  <rect x="260" y="220" width="200" height="100" class="box" fill="#0078d4" stroke="#005a9e"/>
+  <text x="360" y="245" text-anchor="middle" class="label" fill="#ffffff">Application Gateway</text>
+  <text x="360" y="265" text-anchor="middle" class="small" fill="#ffffff">Standard_v2</text>
+  <text x="360" y="283" text-anchor="middle" class="small" fill="#ffffff">Public IP / HTTP :80</text>
+  <text x="360" y="301" text-anchor="middle" class="small" fill="#ffffff">Probe: /health.htm</text>
+  <rect x="285" y="340" width="150" height="32" rx="5" fill="#ffffff" stroke="#0078d4"/>
+  <text x="360" y="361" text-anchor="middle" class="small">App Gateway NSG</text>
+
+  <rect x="515" y="165" width="385" height="230" rx="6" fill="#fffdf7" stroke="#d68a00" stroke-width="1.5"/>
+  <rect x="515" y="165" width="385" height="28" rx="6" fill="#fff3d6"/>
+  <text x="530" y="184" class="small" font-weight="700">VM subnet  10.0.1.0/24</text>
+  <rect x="550" y="207" width="315" height="38" rx="5" fill="#ffffff" stroke="#d68a00"/>
+  <text x="707" y="223" text-anchor="middle" class="small">VM NSG</text>
+  <text x="707" y="237" text-anchor="middle" class="tiny">App Gateway から HTTP :80 のみ許可</text>
+  <rect x="535" y="270" width="165" height="92" class="box" fill="#fff4ce" stroke="#d68a00"/>
+  <text x="617" y="292" text-anchor="middle" class="small" font-weight="700">Windows Server 2022</text>
+  <text x="617" y="308" text-anchor="middle" class="small">VM 01 / IIS</text>
+  <text x="617" y="326" text-anchor="middle" class="tiny">AMA / Chaos Agent</text>
+  <text x="617" y="342" text-anchor="middle" class="tiny">System ID + shared User ID</text>
+  <rect x="715" y="270" width="165" height="92" class="box" fill="#fff4ce" stroke="#d68a00"/>
+  <text x="797" y="292" text-anchor="middle" class="small" font-weight="700">Windows Server 2022</text>
+  <text x="797" y="308" text-anchor="middle" class="small">VM 02 / IIS</text>
+  <text x="797" y="326" text-anchor="middle" class="tiny">AMA / Chaos Agent</text>
+  <text x="797" y="342" text-anchor="middle" class="tiny">System ID + shared User ID</text>
+
+  <rect x="610" y="415" width="230" height="55" class="box" fill="#ffffff" stroke="#107c10"/>
+  <text x="725" y="438" text-anchor="middle" class="label">NAT Gateway</text>
+  <text x="725" y="456" text-anchor="middle" class="small">外向き通信専用 Public IP</text>
+  <rect x="785" y="520" width="165" height="52" class="box" fill="#ffffff" stroke="#107c10"/>
+  <text x="867" y="542" text-anchor="middle" class="small">Azure 拡張機能など</text>
+  <text x="867" y="559" text-anchor="middle" class="small">外向き通信</text>
+
+  <rect x="980" y="145" width="195" height="88" class="box" fill="#fde7e9" stroke="#d13438"/>
+  <text x="1077" y="170" text-anchor="middle" class="label">Azure Chaos Studio</text>
+  <text x="1077" y="190" text-anchor="middle" class="small">CPU / Memory / IIS / Disk IO</text>
+  <text x="1077" y="208" text-anchor="middle" class="small">NSG Security Rule</text>
+
+  <path d="M150 168 H260" class="edge" stroke="#0078d4" marker-end="url(#arrow-blue)"/>
+  <text x="185" y="158" class="small">HTTP :80</text>
+  <path d="M460 270 H505 V295 H535" class="edge" stroke="#0078d4" marker-end="url(#arrow-blue)"/>
+  <path d="M460 282 H505 V335 H715" class="edge" stroke="#0078d4" marker-end="url(#arrow-blue)"/>
+  <text x="474" y="260" class="tiny">HTTP :80</text>
+  <path d="M797 362 V395 H725 V415" class="edge" stroke="#107c10" marker-end="url(#arrow-green)"/>
+  <text x="805" y="389" class="tiny">Outbound</text>
+  <path d="M840 442 H867 V520" class="edge" stroke="#107c10" marker-end="url(#arrow-green)"/>
+  <path d="M980 185 H910 V280 H880" class="edge dash" stroke="#d13438" marker-end="url(#arrow-red)"/>
+  <text x="914" y="174" class="tiny">障害注入</text>
+  <path d="M980 210 H930 V226 H865" class="edge dash" stroke="#d13438" marker-end="url(#arrow-red)"/>
+  <text x="917" y="223" class="tiny">NSG fault</text>
+
+  <rect x="185" y="600" width="990" height="135" rx="8" fill="#ffffff" stroke="#8764b8" stroke-width="2"/>
+  <rect x="185" y="600" width="990" height="34" rx="8" fill="#f1ecf7"/>
+  <path d="M185 634 H1175" stroke="#8764b8" stroke-width="2"/>
+  <text x="205" y="623" class="section">監視・運用</text>
+  <rect x="215" y="652" width="180" height="64" class="box" fill="#ffffff" stroke="#8764b8"/>
+  <text x="305" y="674" text-anchor="middle" class="label">Azure Monitor</text>
+  <text x="305" y="691" text-anchor="middle" class="tiny">VM / Gateway metrics</text>
+  <text x="305" y="706" text-anchor="middle" class="tiny">Alerts + Action Group</text>
+  <rect x="420" y="652" width="195" height="64" class="box" fill="#ffffff" stroke="#8764b8"/>
+  <text x="517" y="674" text-anchor="middle" class="label">Log Analytics Workspace</text>
+  <text x="517" y="691" text-anchor="middle" class="tiny">Perf / Event</text>
+  <text x="517" y="706" text-anchor="middle" class="tiny">App Gateway AllMetrics</text>
+  <rect x="640" y="652" width="145" height="64" class="box" fill="#ffffff" stroke="#8764b8"/>
+  <text x="712" y="676" text-anchor="middle" class="small" font-weight="700">Live Reports (preview)</text>
+  <text x="712" y="696" text-anchor="middle" class="tiny">SRE Agent 内で作成・Reload</text>
+  <rect x="810" y="652" width="165" height="64" class="box" fill="#e8f3fc" stroke="#0078d4"/>
+  <text x="892" y="674" text-anchor="middle" class="label">Azure SRE Agent</text>
+  <text x="892" y="691" text-anchor="middle" class="tiny">Review / High</text>
+  <text x="892" y="706" text-anchor="middle" class="tiny">調査・復旧提案</text>
+  <rect x="1000" y="652" width="145" height="64" class="box" fill="#ffffff" stroke="#8764b8"/>
+  <text x="1072" y="678" text-anchor="middle" class="small" font-weight="700">Application Insights</text>
+  <text x="1072" y="698" text-anchor="middle" class="tiny">Agent telemetry</text>
+
+  <path d="M617 362 V570 H517 V652" class="edge" stroke="#8764b8" marker-end="url(#arrow-purple)"/>
+  <text x="530" y="583" class="tiny">AMA / DCR</text>
+  <path d="M360 320 V575 H305 V652" class="edge" stroke="#8764b8" marker-end="url(#arrow-purple)"/>
+  <text x="315" y="589" class="tiny">Metrics</text>
+  <path d="M395 684 H420" class="edge" stroke="#8764b8" marker-end="url(#arrow-purple)"/>
+  <path d="M615 684 H640" class="edge" stroke="#8764b8" marker-end="url(#arrow-purple)"/>
+  <path d="M785 684 H810" class="edge" stroke="#0078d4" marker-end="url(#arrow-blue)"/>
+  <text x="790" y="674" class="tiny">Query</text>
+  <path d="M975 684 H1000" class="edge" stroke="#8764b8" marker-end="url(#arrow-purple)"/>
+  <path d="M892 652 V585 H940 V500" class="edge dash" stroke="#0078d4" marker-end="url(#arrow-blue)"/>
+  <text x="940" y="578" text-anchor="end" class="tiny">Reader / Contributor</text>
+</svg>
