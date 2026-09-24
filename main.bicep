@@ -1,200 +1,203 @@
 // =============================================================================
 // main.bicep
-// Description: Orchestrates the full SRE Agent Lab deployment.
-//   - VNet / Subnet / NSG / Public IP
-//   - Ubuntu Linux VM with nginx + stress-ng
-//   - Log Analytics + Azure Monitor Agent + Metric Alerts
-//   - Chaos Studio targets, capabilities, agent, experiments
-//   - Azure SRE Agent (AI-powered reliability assistant)
+// Description: Windows IIS VMs, Application Gateway, monitoring, Chaos Studio,
+//              and Azure SRE Agent for a disposable demonstration environment.
 // =============================================================================
 
 targetScope = 'resourceGroup'
 
-// ===== Parameters ============================================================
-
-@description('Azure region for all resources')
-param location string = resourceGroup().location
-
-@description('Prefix used for all resource names')
+// East US 2 supports App Gateway v2 and Chaos Studio; verify subscription quota before deployment.
+param location string = 'eastus2'
+@minLength(1)
+@maxLength(9)
 param prefix string = 'srelab'
-
-@description('VM admin username')
+param tags object = {
+  project: 'sreagentlab'
+  env: 'demo'
+}
 param adminUsername string = 'azureuser'
-
-@description('SSH public key for VM authentication')
 @secure()
-param sshPublicKey string
-
-@description('Email address for alert notifications')
+param adminPassword string
+@minValue(1)
+@maxValue(99)
+param vmCount int = 2
+param vmSize string = 'Standard_D2s_v5'
+param enableRdpPublicIp bool = false
+@description('Explicit restricted IPv4 CIDR when RDP is enabled; never use /0 or a wildcard')
+param allowedRdpSource string = '127.0.0.1/32'
 param alertEmail string
-
-@description('Allowed source IP for SSH access (CIDR notation). Use your public IP for security.')
-param allowedSshSource string = '*'
-
-@description('VM size (Standard_B2s is cost-effective for demos)')
-param vmSize string = 'Standard_B2s'
-
-@description('Name of the Azure SRE Agent')
 param sreAgentName string = '${prefix}-agent'
-
-@description('SRE Agent access level (High = Contributor, Low = Reader only)')
 @allowed(['High', 'Low'])
 param sreAgentAccessLevel string = 'High'
-
-@description('SRE Agent mode (Review = semi-autonomous, Autonomous = fully automatic, ReadOnly = read only)')
 @allowed(['Review', 'Autonomous', 'ReadOnly'])
 param sreAgentMode string = 'Review'
-
-@description('Object ID (principal ID) of the user deploying this template. Required for SRE Agent portal access.')
 param deployerPrincipalId string
 
-// ===== Modules ===============================================================
+var names = [for i in range(0, vmCount): '${prefix}-vm-${padLeft(string(i + 1), 2, '0')}']
+var readerRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
 
-// 1) Networking
+// ===== Modules ===============================================================
 module network 'modules/network.bicep' = {
   name: 'deploy-network'
   params: {
     location: location
     prefix: prefix
-    allowedSshSource: allowedSshSource
+    tags: tags
+    enableRdpPublicIp: enableRdpPublicIp
+    allowedRdpSource: allowedRdpSource
   }
 }
-
-// 2) Virtual Machine
 module vm 'modules/vm.bicep' = {
   name: 'deploy-vm'
   params: {
     location: location
     prefix: prefix
+    tags: tags
     subnetId: network.outputs.subnetId
-    publicIpId: network.outputs.publicIpId
     adminUsername: adminUsername
-    sshPublicKey: sshPublicKey
+    adminPassword: adminPassword
     vmSize: vmSize
+    vmCount: vmCount
+    enableRdpPublicIp: enableRdpPublicIp
   }
 }
-
-// 3) Monitoring
+module appGw 'modules/appgw.bicep' = {
+  name: 'deploy-appgw'
+  params: {
+    location: location
+    prefix: prefix
+    tags: tags
+    subnetId: network.outputs.appGwSubnetId
+    backendIpAddresses: vm.outputs.privateIpAddresses
+  }
+}
 module monitoring 'modules/monitoring.bicep' = {
   name: 'deploy-monitoring'
   params: {
     location: location
     prefix: prefix
-    vmId: vm.outputs.vmId
-    vmName: vm.outputs.vmName
+    tags: tags
+    vmIds: vm.outputs.vmIds
+    vmNames: vm.outputs.vmNames
+    appGwName: appGw.outputs.appGwName
     alertEmail: alertEmail
   }
 }
-
-// 4) Chaos Studio
 module chaos 'modules/chaos.bicep' = {
   name: 'deploy-chaos'
   params: {
     location: location
     prefix: prefix
-    vmName: vm.outputs.vmName
+    tags: tags
+    vmNames: vm.outputs.vmNames
     chaosIdentityClientId: vm.outputs.chaosIdentityClientId
+    nsgName: network.outputs.nsgName
+    appGwSubnetPrefix: network.outputs.appGwSubnetPrefix
+    vmSubnetPrefix: network.outputs.vmSubnetPrefix
   }
   dependsOn: [
-    monitoring          // Ensure monitoring agent is installed first
-    chaosAgentReaderRole // Ensure Chaos Agent identity has Reader role before agent registers
+    monitoring
+    chaosAgentReaderRoles
   ]
 }
-
-// 5) SRE Agent
 module sreAgent 'modules/sre-agent.bicep' = {
   name: 'deploy-sre-agent'
   params: {
     location: location
     prefix: prefix
+    tags: tags
     agentName: sreAgentName
     accessLevel: sreAgentAccessLevel
     agentMode: sreAgentMode
     logAnalyticsWorkspaceId: monitoring.outputs.lawId
   }
 }
+module dashboard 'modules/dashboard.bicep' = {
+  name: 'deploy-dashboard'
+  params: {
+    location: location
+    prefix: prefix
+    tags: tags
+    vmIds: vm.outputs.vmIds
+    appGwId: appGw.outputs.appGwId
+    lawId: monitoring.outputs.lawId
+  }
+}
 
-// ===== Role Assignment for Chaos Agent Identity ==============================
-// The User-Assigned Managed Identity used by ChaosLinuxAgent needs Reader role
-// on the target VM to register successfully with Chaos Studio.
-
-resource chaosAgentReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, prefix, 'chaos-agent-identity', 'Reader')
+// ===== VM-scoped RBAC ========================================================
+resource targetVms 'Microsoft.Compute/virtualMachines@2024-07-01' existing = [for name in names: {
+  name: name
+}]
+resource chaosAgentReaderRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for i in range(0, vmCount): {
+  name: guid(targetVms[i].id, '${prefix}-chaos-identity', readerRoleId)
+  scope: targetVms[i]
   properties: {
     principalId: vm.outputs.chaosIdentityPrincipalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7') // Reader
+    roleDefinitionId: readerRoleId
     principalType: 'ServicePrincipal'
   }
-}
-
-// ===== Role Assignments for Chaos Experiments ================================
-// Each Chaos experiment needs Reader role on the target VM.
-
-resource cpuExpReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, prefix, 'cpu-experiment', 'Reader')
+}]
+// CPU and memory target all VMs; IIS and disk IO target vm-01 only.
+var cpuBindings = [for i in range(0, vmCount): { experiment: 0, vm: i }]
+var memoryBindings = [for i in range(0, vmCount): { experiment: 1, vm: i }]
+var readerBindings = concat(cpuBindings, memoryBindings, [{ experiment: 2, vm: 0 }, { experiment: 3, vm: 0 }])
+resource experimentReaderRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for binding in readerBindings: {
+  name: guid(targetVms[binding.vm].id, prefix, string(binding.experiment), readerRoleId)
+  scope: targetVms[binding.vm]
   properties: {
-    principalId: chaos.outputs.cpuExperimentPrincipalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7') // Reader
+    principalId: chaos.outputs.experimentPrincipalIds[binding.experiment]
+    roleDefinitionId: readerRoleId
     principalType: 'ServicePrincipal'
   }
+}]
+resource targetNsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' existing = {
+  name: '${prefix}-nsg'
 }
-
-resource memoryExpReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, prefix, 'memory-experiment', 'Reader')
+resource nsgExperimentRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(targetNsg.id, prefix, 'nsg-experiment', 'NetworkContributor')
+  scope: targetNsg
   properties: {
-    principalId: chaos.outputs.memoryExperimentPrincipalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7') // Reader
+    principalId: chaos.outputs.nsgExperimentPrincipalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4d97b98b-1d4f-4787-a291-c67834d212e7')
     principalType: 'ServicePrincipal'
   }
 }
 
-resource serviceStopExpReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, prefix, 'servicestop-experiment', 'Reader')
-  properties: {
-    principalId: chaos.outputs.serviceStopExperimentPrincipalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7') // Reader
-    principalType: 'ServicePrincipal'
-  }
-}
-
-// ===== Role Assignment for Deployer to Access SRE Agent =====================
-// The deploying user needs "SRE Agent Administrator" role to manage incident
-// response plans, create sub-agents, approve actions, and fully operate the agent.
-
+// ===== Deployer access =======================================================
 resource sreAgentAdminRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(resourceGroup().id, deployerPrincipalId, 'e79298df-d852-4c6d-84f9-5d13249d1e55')
   properties: {
     principalId: deployerPrincipalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'e79298df-d852-4c6d-84f9-5d13249d1e55') // SRE Agent Administrator
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'e79298df-d852-4c6d-84f9-5d13249d1e55')
     principalType: 'User'
   }
-  dependsOn: [
-    sreAgent
-  ]
+  dependsOn: [sreAgent]
 }
-
-// ===== Role Assignment for Deployer – Contributor ===========================
-// Contributor role allows the deployer to configure and manage the SRE Agent.
-
 resource deployerContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(resourceGroup().id, deployerPrincipalId, 'b24988ac-6180-42a0-ab88-20f7382dd24c')
   properties: {
     principalId: deployerPrincipalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c') // Contributor
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
     principalType: 'User'
   }
-  dependsOn: [
-    sreAgent
-  ]
+  dependsOn: [sreAgent]
 }
 
 // ===== Outputs ===============================================================
-
-output vmPublicIp string = network.outputs.publicIpAddress
-output vmName string = vm.outputs.vmName
-output vmId string = vm.outputs.vmId
+output vmNames string[] = vm.outputs.vmNames
+output vmIds string[] = vm.outputs.vmIds
+output appGwPublicIp string = appGw.outputs.appGwPublicIp
+output appGwName string = appGw.outputs.appGwName
+output appGwId string = appGw.outputs.appGwId
+output probeName string = appGw.outputs.probeName
+output nsgName string = network.outputs.nsgName
+output nsgId string = network.outputs.nsgId
+output appGwSubnetPrefix string = network.outputs.appGwSubnetPrefix
+output vmSubnetPrefix string = network.outputs.vmSubnetPrefix
 output lawName string = monitoring.outputs.lawName
-output cpuExperimentName string = chaos.outputs.cpuExperimentName
-output memoryExperimentName string = chaos.outputs.memoryExperimentName
-output serviceStopExperimentName string = chaos.outputs.serviceStopExperimentName
+output lawId string = monitoring.outputs.lawId
+output experimentNames object = chaos.outputs.experimentNames
 output resourceGroupName string = resourceGroup().name
+output sreAgentPortalUrl string = sreAgent.outputs.agentPortalUrl
+output workbookId string = dashboard.outputs.workbookId
+output workbookUrl string = dashboard.outputs.workbookUrl

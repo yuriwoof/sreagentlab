@@ -1,669 +1,225 @@
-# SRE Agent Lab — Azure ポータル手動構築手順書
+# Windows IIS ラボのポータル手動構築
 
-本手順書は、`main.bicep` および各モジュール (`network.bicep`, `vm.bicep`, `monitoring.bicep`, `chaos.bicep`) で定義されたリソースと同等の環境を、Azure ポータルの GUI 操作のみで構築するための手順です。
+この手順は、現在の `main.bicep` と各モジュールに対応する Windows IIS 構成です。
+旧 Ubuntu / nginx 構成の構築手順は、この手順に置き換えています。
+既存 VM の OS をインプレースで変更せず、新しい専用 RG に作成してください。
 
----
+GUI での個別作成は Bicep のデプロイ outputs を生成しません。
+`common.sh` を利用する運用スクリプトは main の outputs を必要とするため、純粋な手動構築では以下のリソース名と ID を記録し、ポータルで操作します。
+スクリプトを使うデモでは [README](../README.md)の Bicep デプロイを推奨します。
+画面上の配置や翻訳が異なる場合は、下表のリソース設定値とモジュールを照合してください。
 
-## 目次
+## 1. RG と入力値
 
-1. [前提条件・パラメータ一覧](#1-前提条件パラメータ一覧)
-2. [手順1: リソースグループの作成](#2-手順1-リソースグループの作成)
-3. [手順2: ネットワークの作成 (NSG / VNet / Public IP)](#3-手順2-ネットワークの作成-nsg--vnet--public-ip)
-4. [手順3: ユーザー割り当てマネージド ID の作成](#4-手順3-ユーザー割り当てマネージド-id-の作成)
-5. [手順4: 仮想マシンの作成](#5-手順4-仮想マシンの作成)
-6. [手順5: カスタムスクリプト拡張機能 (nginx + stress-ng)](#6-手順5-カスタムスクリプト拡張機能-nginx--stress-ng)
-7. [手順6: 監視の構成 (Log Analytics / AMA / DCR)](#7-手順6-監視の構成-log-analytics--ama--dcr)
-8. [手順7: アクション グループの作成](#8-手順7-アクション-グループの作成)
-9. [手順8: メトリック アラートの作成](#9-手順8-メトリック-アラートの作成)
-10. [手順9: Chaos Studio の構成](#10-手順9-chaos-studio-の構成)
-11. [手順10: ロール割り当ての構成](#11-手順10-ロール割り当ての構成)
-12. [構成確認チェックリスト](#12-構成確認チェックリスト)
+Azure Portal で専用 RG（既定 `rg-sreagentlab`）を `East US 2` に作成します。
+作成権限と、必要なスコープでロールを割り当てる権限を管理者に確認します。
+SRE Agent の利用可否と VM クォータも先に確認してください。
 
----
+| 項目 | 設定 |
+|---|---|
+| prefix | `srelab`、1～9 文字 |
+| VM 名 | `srelab-vm-01`、`srelab-vm-02`。Windows computerName は 15 文字以下 |
+| 台数 | 既定 2、Bicep は 1～99。1 台ではフェイルオーバーなし |
+| タグ | 対応するリソースに `project=sreagentlab`、`env=demo` |
+| 管理者 | 管理者名と新しい強固なパスワードを安全な入力欄から指定 |
+| 通知先 | 実際のアラート通知用メールアドレス |
 
-## 1. 前提条件・パラメータ一覧
+パスワードをメモ、ドキュメント、パラメータファイルに転記しません。
+Bicep で作成する場合はコミット対象とローカル用の `adminPassword.value` を空文字のままにし、`deploy.sh` の非表示入力を使用します。
 
-### 前提条件
+## 2. ネットワークと NAT
 
-- Azure サブスクリプションへの**共同作成者**以上のアクセス権
-- SSH キーペアを事前に用意していること (`ssh-keygen -t rsa -b 2048`)
-- 通知先メールアドレス
-- SSH 接続元のパブリック IP アドレス
+VNet `srelab-vnet` にアドレス空間 `10.0.0.0/16` を設定し、次のサブネットを作成します。
 
-### パラメータ一覧
-
-以下の値を手順内で使用します。環境に合わせて読み替えてください。
-
-| パラメータ | 既定値 | 説明 |
+| サブネット | プレフィックス | 関連付け |
 |---|---|---|
-| **prefix** | `srelab` | 全リソース名の接頭辞 |
-| **location** | `East US 2` | リソースのデプロイ先リージョン |
-| **adminUsername** | `azureuser` | VM の管理者ユーザー名 |
-| **sshPublicKey** | *(要設定)* | SSH 公開鍵の内容 |
-| **alertEmail** | *(要設定)* | アラート通知先メールアドレス |
-| **allowedSshSource** | `*` | SSH 許可元 IP (CIDR 形式、例: `203.0.113.1/32`) |
-| **vmSize** | `Standard_B2s` | VM のサイズ |
+| `srelab-snet-vm` | `10.0.1.0/24` | VM 用 NSG と NAT Gateway。既定の外向きアクセスを無効化 |
+| `srelab-snet-appgw` | `10.0.2.0/24` | Gateway 用 NSG。Application Gateway 専用 |
 
-> **命名規則**: 各リソース名は `{prefix}-{リソース種別}` の形式です（例: `srelab-vm`, `srelab-vnet`）。
+Standard / 静的 IPv4 の Public IP `srelab-nat-pip` と、Standard NAT Gateway `srelab-nat` を作成します。
+NAT のアイドルタイムアウトは 4 分とし、VM サブネットへ関連付けます。
+VM に Public IP を付けない構成でも、拡張機能や Azure エンドポイントへの外向き通信が必要です。
+NAT の Public IP は受信管理用ではありません。
 
----
+### VM 用 NSG
 
-## 2. 手順1: リソースグループの作成
+`srelab-nsg` を VM サブネットへ関連付け、以下を設定します。
+ソースポートは `*`、方向は Inbound です。
 
-1. Azure ポータル上部の検索バーに「**リソース グループ**」と入力し、選択します。
-2. **[+ 作成]** をクリックします。
-3. 以下を入力します:
-   - **サブスクリプション**: 使用するサブスクリプションを選択
-   - **リソース グループ名**: `rg-sreagentlab`
-   - **リージョン**: `East US 2`
-4. **[確認および作成]** → **[作成]** をクリックします。
+| 名前 | 優先度 | ソース | 宛先 | 宛先ポート / プロトコル | 動作 |
+|---|---|---|---|---|---|
+| `AllowHTTPFromApplicationGateway` | 200 | `10.0.2.0/24` | `10.0.1.0/24` | 80 / TCP | Allow |
+| `DenyOtherHTTP` | 210 | `*` | `*` | 80 / TCP | Deny |
+| `AllowRestrictedRDP`（任意） | 300 | 明示した狭い接続元 CIDR | `10.0.1.0/24` | 3389 / TCP | Allow |
+| `DenyOtherRDP` | 310 | `*` | `*` | 3389 / TCP | Deny |
 
----
+RDP は既定で無効です。
+有効化する場合だけ、実際の接続元 CIDR（通常 `/32`）を指定します。
+ワイルドカードや `/0` を許可元にせず、未指定のまま VM Public IP を追加しません。
+優先度 100 は障害規則用に空けておきます。
 
-## 3. 手順2: ネットワークの作成 (NSG / VNet / Public IP)
+### Gateway 用 NSG
 
-### 3.1 ネットワーク セキュリティ グループ (NSG) の作成
+`srelab-appgw-nsg` を Gateway サブネットへ関連付けます。
 
-1. 検索バーに「**ネットワーク セキュリティ グループ**」と入力し、選択します。
-2. **[+ 作成]** をクリックします。
-3. **[基本]** タブ:
-   - **リソース グループ**: `rg-sreagentlab`
-   - **名前**: `srelab-nsg`
-   - **リージョン**: `East US 2`
-4. **[確認および作成]** → **[作成]** をクリックします。
+| 名前 | 優先度 | ソース | 宛先ポート / プロトコル | 動作 |
+|---|---|---|---|---|
+| `AllowInternetHTTPHTTPS` | 200 | `Internet` | 80, 443 / TCP | Allow |
+| `AllowGatewayManager` | 210 | `GatewayManager` | 65200-65535 / TCP | Allow |
+| `AllowAzureLoadBalancer` | 220 | `AzureLoadBalancer` | `*` / `*` | Allow |
 
-#### 受信セキュリティ規則の追加
+HTTPS 用ポートを NSG で許可していても、このラボで構成するリスナーは HTTP 80 のみです。
+TLS 証明書と HTTPS リスナーは構成していません。
 
-作成後、`srelab-nsg` を開き、左メニューの **[受信セキュリティ規則]** を選択します。
+## 3. ID と Windows VM
 
-**規則①: SSH 許可**
+共有ユーザー割り当てマネージド ID `srelab-chaos-identity` を 1 つ作成し、各 VM に割り当てます。
+各 VM ではシステム割り当て ID も有効にします。
+共有 ID は Chaos、システム割り当て ID は AMA に使用します。
 
-1. **[+ 追加]** をクリックします。
-2. 以下を設定:
-   | 設定項目 | 値 |
-   |---|---|
-   | ソース | **IP Addresses** |
-   | ソース IP アドレス/CIDR | `{allowedSshSource}` (例: `203.0.113.1/32`) |
-   | ソース ポート範囲 | `*` |
-   | 宛先 | **Any** |
-   | サービス | **SSH** |
-   | 宛先ポート範囲 | `22` |
-   | プロトコル | **TCP** |
-   | アクション | **許可** |
-   | 優先度 | `1000` |
-   | 名前 | `AllowSSH` |
-3. **[追加]** をクリックします。
+各 VM を次の値で作成します。
 
-**規則②: HTTP 許可**
-
-1. **[+ 追加]** をクリックします。
-2. 以下を設定:
-   | 設定項目 | 値 |
-   |---|---|
-   | ソース | **Any** |
-   | ソース ポート範囲 | `*` |
-   | 宛先 | **Any** |
-   | サービス | **HTTP** |
-   | 宛先ポート範囲 | `80` |
-   | プロトコル | **TCP** |
-   | アクション | **許可** |
-   | 優先度 | `1010` |
-   | 名前 | `AllowHTTP` |
-3. **[追加]** をクリックします。
-
----
-
-### 3.2 仮想ネットワーク (VNet) とサブネットの作成
-
-1. 検索バーに「**仮想ネットワーク**」と入力し、選択します。
-2. **[+ 作成]** をクリックします。
-3. **[基本]** タブ:
-   - **リソース グループ**: `rg-sreagentlab`
-   - **名前**: `srelab-vnet`
-   - **リージョン**: `East US 2`
-4. **[IP アドレス]** タブ:
-   - **アドレス空間**: `10.0.0.0/16`
-   - 既定のサブネットを削除し、**[+ サブネットの追加]** をクリック:
-     - **サブネット名**: `default`
-     - **サブネット アドレス範囲**: `10.0.1.0/24`
-5. **[セキュリティ]** タブ:
-   - 特に変更なし（NSG はサブネットに後から関連付けます）
-6. **[確認および作成]** → **[作成]** をクリックします。
-
-#### NSG をサブネットに関連付ける
-
-1. 作成した `srelab-vnet` を開きます。
-2. 左メニューの **[サブネット]** を選択します。
-3. `default` サブネットをクリックします。
-4. **ネットワーク セキュリティ グループ**: ドロップダウンから `srelab-nsg` を選択します。
-5. **[保存]** をクリックします。
-
----
-
-### 3.3 パブリック IP アドレスの作成
-
-1. 検索バーに「**パブリック IP アドレス**」と入力し、選択します。
-2. **[+ 作成]** をクリックします。
-3. 以下を入力します:
-   | 設定項目 | 値 |
-   |---|---|
-   | **名前** | `srelab-pip` |
-   | **リージョン** | `East US 2` |
-   | **SKU** | `Standard` |
-   | **割り当て** | `静的` |
-   | **IP バージョン** | `IPv4` |
-   | **リソース グループ** | `rg-sreagentlab` |
-4. **[確認および作成]** → **[作成]** をクリックします。
-
-> **メモ**: 作成後、割り当てられた IP アドレスを控えておいてください（SSH 接続で使用します）。
-
----
-
-## 4. 手順3: ユーザー割り当てマネージド ID の作成
-
-この ID は後の手順で Chaos Studio エージェントが使用します。
-
-1. 検索バーに「**マネージド ID**」と入力し、**[ユーザー割り当てマネージド ID]** を選択します。
-2. **[+ 作成]** をクリックします。
-3. 以下を入力します:
-   - **リソース グループ**: `rg-sreagentlab`
-   - **リージョン**: `East US 2`
-   - **名前**: `srelab-chaos-identity`
-4. **[確認および作成]** → **[作成]** をクリックします。
-
-> **メモ**: 作成後、リソースの **[概要]** ページで **クライアント ID** と **プリンシパル ID** を控えておいてください。後の Chaos Studio 構成で使用します。
-
----
-
-## 5. 手順4: 仮想マシンの作成
-
-1. 検索バーに「**仮想マシン**」と入力し、選択します。
-2. **[+ 作成]** → **[Azure 仮想マシン]** をクリックします。
-
-### [基本] タブ
-
-| 設定項目 | 値 |
+| 設定 | 値 |
 |---|---|
-| **リソース グループ** | `rg-sreagentlab` |
-| **仮想マシン名** | `srelab-vm` |
-| **リージョン** | `East US 2` |
-| **可用性オプション** | インフラストラクチャ冗長は必要ありません |
-| **イメージ** | `Ubuntu Server 22.04 LTS - x64 Gen2` |
-| **VM アーキテクチャ** | `x64` |
-| **サイズ** | `Standard_B2s` |
-| **認証の種類** | `SSH 公開キー` |
-| **ユーザー名** | `azureuser` |
-| **SSH 公開キーのソース** | `既存の公開キーを使用` |
-| **SSH 公開キー** | *(SSH 公開鍵の内容を貼り付け)* |
-| **パブリック受信ポート** | `なし` (NSG で別途制御済み) |
+| イメージ publisher / offer | `MicrosoftWindowsServer` / `WindowsServer` |
+| SKU / version | `2022-datacenter-azure-edition` / `latest` |
+| サイズ | `Standard_D2s_v5` |
+| OS ディスク | 127 GiB、Standard HDD LRS（`Standard_LRS`）、ホストキャッシュなし（`None`） |
+| ネットワーク | VM サブネット、NIC への追加 NSG なし |
+| VM Public IP | なし。限定した RDP を明示的に有効化する場合だけ追加 |
+| ブート診断 | マネージドストレージで有効 |
+| ID | システム割り当てと共有ユーザー割り当て |
 
-### [ディスク] タブ
+承認された元イメージは 127 GiB を必要とするため、32 GiB に縮小しません。
+`Standard_D2s_v5` は、このラボで使用するディスクメトリクスに対応する VM サイズとして選択しています。
+サイズを変更する場合は対応指標とクォータを再確認してください。
+`vm.bicep` はラボ用に `enableAutomaticUpdates=false` としています。
+手動構築でも OS 更新設定を照合し、本番の更新方針へそのまま流用しません。
 
-| 設定項目 | 値 |
+## 4. IIS の初期化
+
+各 VM の Run Command で `RunPowerShellScript` を選び、リポジトリの `scripts/setup-iis.ps1` の内容を実行します。
+外部サイトから任意のスクリプトを取得せず、確認済みのリポジトリ版を使用します。
+Bicep 版は同じスクリプトを Windows Custom Script Extension で実行します。
+
+スクリプトは IIS をインストールし、次を構成します。
+
+- `Default.htm` にコンピューター名と VM 固有の背景色を表示。
+- `/health.htm` に `OK` を配置。
+- HTTP 応答とページにキャッシュ抑止設定を適用。
+- Windows Firewall で HTTP を許可。
+- `W3SVC` を自動起動に設定して起動し、ローカル HTTP 200 を検証。
+- IO 負荷用ディレクトリ `C:\ChaosTemp` を作成。
+
+Run Command の終了結果と、`Get-Service W3SVC` の Running を確認します。
+ゲスト内での高権限実行になるため、対象 VM とスクリプト内容を承認してから実行してください。
+
+## 5. Application Gateway
+
+Public IP `srelab-appgw-pip` を Standard / 静的 IPv4 で作成します。
+Application Gateway `srelab-appgw` を次の値で作成します。
+
+| 設定 | 値 |
 |---|---|
-| **OS ディスクの種類** | `Standard HDD (ローカル冗長ストレージ)` ※Standard_LRS に対応 |
-| **OS ディスク名** | `srelab-osdisk` |
+| SKU / capacity | `Standard_v2` / 1 |
+| サブネット | `srelab-snet-appgw` |
+| フロントエンド | Gateway 用 Public IP |
+| バックエンドプール `iis-pool` | 各 VM のプライベート IP |
+| バックエンド設定 `iis-http` | HTTP 80、timeout 30 秒、Cookie affinity 無効 |
+| プローブ `iis-health` | HTTP、host `127.0.0.1`、path `/health.htm` |
+| プローブの判定 | interval 15 秒、timeout 10 秒、失敗回数 2、正常コード `200` |
+| リスナー / ルール | HTTP 80、Basic、優先度 100、`iis-pool` と `iis-http` に接続 |
 
-### [ネットワーク] タブ
+Backend health で全 VM が Healthy になったら、Gateway の Public IP へブラウザで HTTP アクセスします。
+反復更新して両 VM のページを確認します。
+Cookie affinity 無効でも、表示順が厳密に交互になる保証はありません。
 
-| 設定項目 | 値 |
+## 6. 監視
+
+`srelab-law` を PerGB2018、保持期間 30 日で作成します。
+Windows 用 DCR `srelab-dcr` を作成し、全 VM を関連付けます。
+各 VM の `AzureMonitorWindowsAgent` がシステム割り当て ID を使用することを確認します。
+
+| データソース | 設定 |
 |---|---|
-| **仮想ネットワーク** | `srelab-vnet` |
-| **サブネット** | `default (10.0.1.0/24)` |
-| **パブリック IP** | `srelab-pip` (先に作成したもの) |
-| **NIC ネットワーク セキュリティ グループ** | `なし` (サブネット レベルの NSG で制御) |
-| **パブリック受信ポート** | `なし` |
-
-### [管理] タブ
-
-| 設定項目 | 値 |
-|---|---|
-| **ブート診断** | `マネージド ストレージ アカウントで有効にする` (既定) |
-
-### [詳細] タブ — マネージド ID の割り当て
-
-> **重要**: VM にユーザー割り当てマネージド ID を関連付けます。
-
-1. **[詳細]** タブではなく、VM 作成後に設定する方法でも構いません（後述）。
-2. VM 作成ウィザード内に **[ID]** の設定がない場合は、VM 作成完了後に以下を行います:
-   - `srelab-vm` のリソースページを開きます。
-   - 左メニューの **[ID]** をクリックします。
-   - **[ユーザー割り当て済み]** タブを選択します。
-   - **[+ 追加]** をクリックし、`srelab-chaos-identity` を選択して **[追加]** をクリックします。
-
-### 作成
-
-**[確認および作成]** → **[作成]** をクリックし、デプロイ完了まで待ちます。
-
----
-
-## 6. 手順5: カスタムスクリプト拡張機能 (nginx + stress-ng)
-
-VM 内に nginx (デモ用 Web サーバー) と stress-ng (負荷生成ツール) をインストールします。
-
-1. `srelab-vm` のリソースページを開きます。
-2. 左メニューの **[拡張機能とアプリケーション]** を選択します。
-3. **[+ 追加]** をクリックします。
-4. 一覧から **[Custom Script for Linux]** を選択し、**[次へ]** をクリックします。
-5. **コマンド** 欄に以下のスクリプトを入力します:
-
-   ```
-   export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y software-properties-common && add-apt-repository -y universe && apt-get update && apt-get install -y nginx stress-ng && systemctl enable nginx && systemctl start nginx
-   ```
-
-6. **[確認および作成]** → **[作成]** をクリックします。
-7. 拡張機能のプロビジョニングが完了するまで待ちます (数分かかります)。
-
-### 動作確認
-
-ブラウザで `http://{VM のパブリック IP}` にアクセスし、nginx のデフォルトページが表示されることを確認します。
-
----
-
-## 7. 手順6: 監視の構成 (Log Analytics / AMA / DCR)
-
-### 7.1 Log Analytics ワークスペースの作成
-
-1. 検索バーに「**Log Analytics ワークスペース**」と入力し、選択します。
-2. **[+ 作成]** をクリックします。
-3. 以下を入力します:
-   | 設定項目 | 値 |
-   |---|---|
-   | **リソース グループ** | `rg-sreagentlab` |
-   | **名前** | `srelab-law` |
-   | **リージョン** | `East US 2` |
-4. **[確認および作成]** → **[作成]** をクリックします。
-
-### 7.2 データ収集ルール (DCR) の作成
-
-1. 検索バーに「**データ収集ルール**」(または「**Monitor**」→ **[データ収集ルール]**) と入力し、選択します。
-2. **[+ 作成]** をクリックします。
-
-#### [基本] タブ
-
-| 設定項目 | 値 |
-|---|---|
-| **ルール名** | `srelab-dcr` |
-| **リソース グループ** | `rg-sreagentlab` |
-| **リージョン** | `East US 2` |
-| **プラットフォームの種類** | `Linux` |
-
-#### [リソース] タブ
-
-1. **[+ リソースの追加]** をクリックします。
-2. `srelab-vm` を選択して追加します。
-
-> これにより、Azure Monitor Agent (AMA) が自動的に VM にインストールされ、DCR との関連付けも行われます。
-
-#### [収集と配信] タブ
-
-**[+ データ ソースの追加]** をクリックし、以下の 2 つのデータ ソースを追加します:
-
-**データ ソース①: パフォーマンス カウンター**
-
-1. **データ ソースの種類**: `パフォーマンス カウンター`
-2. **カスタム** を選択し、以下のカウンターを追加:
-   | カウンター | サンプリング間隔 (秒) |
-   |---|---|
-   | `\Processor(_Total)\% Processor Time` | `10` |
-   | `\Memory\% Used Memory` | `10` |
-   | `\Memory\Available MBytes Memory` | `10` |
-   | `\LogicalDisk(_Total)\% Free Space` | `10` |
-3. **送信先** タブで **[+ 送信先の追加]** をクリック:
-   - **送信先の種類**: `Azure Monitor ログ`
-   - **ワークスペース**: `srelab-law`
-
-**データ ソース②: Syslog**
-
-1. **データ ソースの種類**: `Linux Syslog`
-2. 以下のファシリティとログ レベルを設定:
-   | ファシリティ | 最小ログ レベル |
-   |---|---|
-   | `auth` | `Warning` |
-   | `daemon` | `Warning` |
-   | `kern` | `Warning` |
-   | `syslog` | `Warning` |
-   
-   > ログ レベル `Warning` 以上 (`Warning`, `Error`, `Critical`, `Alert`, `Emergency`) が収集されます。
-
-3. **送信先** タブで **[+ 送信先の追加]** をクリック:
-   - **送信先の種類**: `Azure Monitor ログ`
-   - **ワークスペース**: `srelab-law`
-
-#### 作成
-
-**[確認および作成]** → **[作成]** をクリックします。
-
-### 7.3 Azure Monitor Agent と DCR 関連付けの確認
-
-DCR 作成時にリソースとして VM を追加済みの場合、以下が自動で行われます:
-
-- **Azure Monitor Agent (AzureMonitorLinuxAgent)** 拡張機能が `srelab-vm` にインストールされる
-- **DCR の関連付け** (`srelab-dcr-assoc`) が作成される
-
-手動で確認するには:
-
-1. `srelab-vm` → **[拡張機能とアプリケーション]** を開き、`AzureMonitorLinuxAgent` が表示されていることを確認します。
-2. `srelab-dcr` → **[リソース]** を開き、`srelab-vm` が関連付けられていることを確認します。
-
----
-
-## 8. 手順7: アクション グループの作成
-
-1. 検索バーに「**Monitor**」と入力し、**[Azure Monitor]** を選択します。
-2. 左メニューの **[アラート]** → **[アクション グループ]** を選択します。
-3. **[+ 作成]** をクリックします。
-
-#### [基本] タブ
-
-| 設定項目 | 値 |
-|---|---|
-| **リソース グループ** | `rg-sreagentlab` |
-| **アクション グループ名** | `srelab-ag` |
-| **表示名** | `SREDemo` |
-| **リージョン** | `グローバル` |
-
-#### [通知] タブ
-
-1. **通知の種類**: `メール/SMS メッセージ/プッシュ/音声` を選択します。
-2. 表示される設定画面で:
-   - **メール** にチェックを入れます。
-   - **メール アドレス**: `{alertEmail}` (通知先メールアドレス)
-   - **共通アラート スキーマを有効にする**: `はい`
-3. **名前**: `AdminEmail`
-
-#### 作成
-
-**[確認および作成]** → **[作成]** をクリックします。
-
----
-
-## 9. 手順8: メトリック アラートの作成
-
-### 9.1 CPU 使用率アラート
-
-1. **Azure Monitor** → **[アラート]** → **[+ 作成]** → **[アラート ルール]** を選択します。
-
-#### [スコープ] タブ
-
-1. **[リソースの選択]** をクリックします。
-2. リソースの種類を `仮想マシン` でフィルターし、`srelab-vm` を選択します。
-
-#### [条件] タブ
-
-1. **シグナル名** で `Percentage CPU` を検索して選択します。
-2. 以下を設定:
-   | 設定項目 | 値 |
-   |---|---|
-   | **しきい値の種類** | `静的` |
-   | **集計の種類** | `平均` |
-   | **演算子** | `次の値より大きい` |
-   | **しきい値** | `80` |
-   | **確認する間隔** | `1 分` |
-   | **ルックバック期間** | `5 分` |
-
-#### [アクション] タブ
-
-1. **[アクション グループの選択]** をクリックします。
-2. `srelab-ag` を選択します。
-
-#### [詳細] タブ
-
-| 設定項目 | 値 |
-|---|---|
-| **重要度** | `Sev 2 – 警告` |
-| **アラート ルール名** | `srelab-high-cpu-alert` |
-| **説明** | `Alert when VM CPU exceeds 80% for 5 minutes (Chaos Studio demo)` |
-| **作成時にアラート ルールを有効にする** | ✅ |
-
-**[確認および作成]** → **[作成]** をクリックします。
-
----
-
-### 9.2 メモリ不足アラート
-
-1. 前述と同じ手順で新しいアラート ルールを作成します。
-
-#### [スコープ]
-
-- `srelab-vm` を選択
-
-#### [条件]
-
-1. **シグナル名** で `Available Memory Bytes` を検索して選択します。
-2. 以下を設定:
-   | 設定項目 | 値 |
-   |---|---|
-   | **しきい値の種類** | `静的` |
-   | **集計の種類** | `平均` |
-   | **演算子** | `次の値より小さい` |
-   | **しきい値** | `209715200` (= 200 MB) |
-   | **確認する間隔** | `1 分` |
-   | **ルックバック期間** | `5 分` |
-
-#### [アクション]
-
-- `srelab-ag` を選択
-
-#### [詳細]
-
-| 設定項目 | 値 |
-|---|---|
-| **重要度** | `Sev 2 – 警告` |
-| **アラート ルール名** | `srelab-high-memory-alert` |
-| **説明** | `Alert when VM available memory is low (Chaos Studio demo)` |
-
-**[確認および作成]** → **[作成]** をクリックします。
-
----
-
-## 10. 手順9: Chaos Studio の構成
-
-### 10.1 Chaos Studio ターゲットの有効化
-
-1. 検索バーに「**Chaos Studio**」と入力し、選択します。
-2. 左メニューの **[ターゲット]** を選択します。
-3. `srelab-vm` の行を見つけ、チェックボックスを選択します。
-4. ツールバーの **[ターゲットの有効化]** → **[エージェントベースのターゲットの有効化]** をクリックします。
-5. 設定画面で以下を入力します:
-   - **マネージド ID**: `srelab-chaos-identity` (ユーザー割り当て) を選択
-6. **[確認および有効化]** → **[有効化]** をクリックします。
-
-### 10.2 Chaos Agent 拡張機能の確認
-
-ターゲットを有効化すると、VM に **ChaosLinuxAgent** 拡張機能が自動的にインストールされます。
-
-確認手順:
-1. `srelab-vm` → **[拡張機能とアプリケーション]** を開きます。
-2. `ChaosAgent` (ChaosLinuxAgent) が一覧に表示されていることを確認します。
-
-### 10.3 ケイパビリティの有効化
-
-Chaos Studio の **[ターゲット]** 画面で `srelab-vm` の **[操作の管理]** をクリックし、以下のケイパビリティにチェックを入れます:
-
-- ✅ **CPU Pressure** (1.0)
-- ✅ **Physical Memory Pressure** (1.0)
-- ✅ **Network Disconnect** (1.2)
-- ✅ **Stop Service** (1.0)
-
-**[保存]** をクリックします。
-
----
-
-### 10.4 実験1: CPU Pressure の作成
-
-1. Chaos Studio の左メニューから **[実験]** を選択します。
-2. **[+ 作成]** をクリックします。
-
-#### [基本] タブ
-
-| 設定項目 | 値 |
-|---|---|
-| **リソース グループ** | `rg-sreagentlab` |
-| **名前** | `srelab-cpu-pressure-exp` |
-| **リージョン** | `East US 2` |
-
-#### [アクセス許可] タブ
-
-- **ID の種類**: `システム割り当て` を選択
-
-#### [実験デザイナー] タブ
-
-1. **[ステップの追加]** をクリックし、ステップ名を `step1-cpu-pressure` にします。
-2. **[ブランチの追加]** をクリックし、ブランチ名を `branch1` にします。
-3. **[アクションの追加]** → **[障害の追加]** をクリックします。
-4. 以下を選択・設定します:
-   | 設定項目 | 値 |
-   |---|---|
-   | **障害** | `CPU Pressure` |
-   | **期間** | `10 分` (`PT10M`) |
-   | **pressureLevel** | `95` |
-5. **[ターゲット リソース]** で **[追加]** をクリックし、`srelab-vm` を選択します。
-
-#### 作成
-
-**[確認および作成]** → **[作成]** をクリックします。
-
----
-
-### 10.5 実験2: Memory Pressure の作成
-
-前述と同じ手順で新しい実験を作成します。
-
-#### [基本] タブ
-
-| 設定項目 | 値 |
-|---|---|
-| **名前** | `srelab-memory-pressure-exp` |
-| **リージョン** | `East US 2` |
-
-#### [アクセス許可] タブ
-
-- **ID の種類**: `システム割り当て`
-
-#### [実験デザイナー] タブ
-
-| 設定項目 | 値 |
-|---|---|
-| **ステップ名** | `step1-memory-pressure` |
-| **ブランチ名** | `branch1` |
-| **障害** | `Physical Memory Pressure` |
-| **期間** | `10 分` (`PT10M`) |
-| **pressureLevel** | `90` |
-| **ターゲット** | `srelab-vm` |
-
-**[確認および作成]** → **[作成]** をクリックします。
-
----
-
-### 10.6 実験3: Service Stop (nginx) の作成
-
-前述と同じ手順で新しい実験を作成します。
-
-#### [基本] タブ
-
-| 設定項目 | 値 |
-|---|---|
-| **名前** | `srelab-stop-nginx-exp` |
-| **リージョン** | `East US 2` |
-
-#### [アクセス許可] タブ
-
-- **ID の種類**: `システム割り当て`
-
-#### [実験デザイナー] タブ
-
-| 設定項目 | 値 |
-|---|---|
-| **ステップ名** | `step1-stop-nginx` |
-| **ブランチ名** | `branch1` |
-| **障害** | `Stop Service` |
-| **期間** | `5 分` (`PT5M`) |
-| **serviceName** | `nginx` |
-| **ターゲット** | `srelab-vm` |
-
-**[確認および作成]** → **[作成]** をクリックします。
-
----
-
-## 11. 手順10: ロール割り当ての構成
-
-Chaos Studio が正しく動作するために、以下のロール割り当てが必要です。
-
-### 11.1 Chaos Agent 用マネージド ID への Reader ロール
-
-1. `srelab-vm` のリソースページを開きます（または `rg-sreagentlab` リソースグループ）。
-2. 左メニューの **[アクセス制御 (IAM)]** を選択します。
-3. **[+ 追加]** → **[ロールの割り当ての追加]** をクリックします。
-4. **[ロール]** タブで `閲覧者` (Reader) を検索して選択し、**[次へ]** をクリックします。
-5. **[メンバー]** タブ:
-   - **アクセスの割り当て先**: `マネージド ID`
-   - **[+ メンバーの選択]** をクリックし、`srelab-chaos-identity` (ユーザー割り当てマネージド ID) を選択
-6. **[確認と割り当て]** をクリックします。
-
-### 11.2 各 Chaos 実験のシステム割り当てマネージド ID への Reader ロール
-
-各実験 (3 つ) のシステム割り当てマネージド ID にも、ターゲット VM またはリソースグループに対して **閲覧者 (Reader)** ロールを付与します。
-
-> **ヒント**: Chaos Studio の **[実験]** 画面で実験を選択した際、ポータルが「必要なアクセス許可が不足しています」と警告する場合は、そこから直接ロールを割り当てることもできます。
-
-以下の 3 つの実験について、それぞれ同じ手順を繰り返します:
-
-| 実験名 | 割り当て先 ID |
-|---|---|
-| `srelab-cpu-pressure-exp` | 実験のシステム割り当てマネージド ID |
-| `srelab-memory-pressure-exp` | 実験のシステム割り当てマネージド ID |
-| `srelab-stop-nginx-exp` | 実験のシステム割り当てマネージド ID |
-
-**各実験について**:
-
-1. リソースグループ `rg-sreagentlab` の **[アクセス制御 (IAM)]** を開きます。
-2. **[+ 追加]** → **[ロールの割り当ての追加]** をクリックします。
-3. **[ロール]** タブ: `閲覧者` (Reader) を選択
-4. **[メンバー]** タブ:
-   - **アクセスの割り当て先**: `マネージド ID`
-   - **[+ メンバーの選択]** → マネージド ID の種類で **[Chaos 実験]** を選択
-   - 該当する実験名を選択
-5. **[確認と割り当て]** をクリックします。
-
----
-
-## 12. 構成確認チェックリスト
-
-すべてのリソースが正しく作成されたことを確認するためのチェックリストです。
-
-### リソース一覧
-
-リソースグループ `rg-sreagentlab` に以下のリソースが存在すること:
-
-| # | リソース名 | リソースの種類 |
+| パフォーマンス、10 秒間隔 | `\Processor Information(_Total)\% Processor Time` |
+| メモリ | `\Memory\Available Bytes`、`\Memory\% Committed Bytes In Use` |
+| ディスク | `\LogicalDisk(*)\% Free Space`、`\LogicalDisk(*)\Disk Reads/sec`、`\LogicalDisk(*)\Disk Writes/sec`、`\LogicalDisk(*)\Avg. Disk Queue Length` |
+| Windows Event | `System!*[System[Provider[@Name='Service Control Manager'] and (EventID=7036)]]` |
+| 送信先 | Log Analytics の `Perf` / `Event` |
+
+Gateway の診断設定は、同じワークスペースへ **AllMetrics のみ**を送信します。
+アクセスログ、パフォーマンスログ、ファイアウォールログは選択しません。
+プラットフォームメトリクスは Azure Monitor から直接表示できます。
+
+メール通知用 Action Group を作成し、[SRE Agent 手順のアラート表](sre-agent-setup.md#アラートとインシデント対応)の条件を設定します。
+メモリと IIS はログ検索アラートであり、未対応のプラットフォームメモリ指標を選ばないでください。
+IIS の KQL は `monitoring.bicep` と同じサービス名と stopped の条件を使用します。
+SCM 7036 のすべてをサービス停止として数えません。
+
+## 7. Chaos のターゲットと実験
+
+全 VM にエージェントベースターゲット `Microsoft-Agent` を有効化し、共有 ID を指定します。
+Windows 拡張機能 `ChaosWindowsAgent` を使用し、次の能力を有効化します。
+
+| 実験 | 能力 / パラメータ | 対象 / 期間 |
 |---|---|---|
-| 1 | `srelab-nsg` | ネットワーク セキュリティ グループ |
-| 2 | `srelab-vnet` | 仮想ネットワーク |
-| 3 | `srelab-pip` | パブリック IP アドレス |
-| 4 | `srelab-chaos-identity` | ユーザー割り当てマネージド ID |
-| 5 | `srelab-nic` | ネットワーク インターフェイス ※ |
-| 6 | `srelab-vm` | 仮想マシン |
-| 7 | `srelab-law` | Log Analytics ワークスペース |
-| 8 | `srelab-dcr` | データ収集ルール |
-| 9 | `srelab-ag` | アクション グループ |
-| 10 | `srelab-high-cpu-alert` | メトリック アラート |
-| 11 | `srelab-high-memory-alert` | メトリック アラート |
-| 12 | `srelab-cpu-pressure-exp` | Chaos Studio 実験 |
-| 13 | `srelab-memory-pressure-exp` | Chaos Studio 実験 |
-| 14 | `srelab-stop-nginx-exp` | Chaos Studio 実験 |
+| CPU | `CPUPressure-1.0`、pressureLevel `95` | 全 VM / 10 分 |
+| メモリ | `PhysicalMemoryPressure-1.0`、pressureLevel `90` | 全 VM / 10 分 |
+| IIS | `StopService-1.0`、serviceName `W3SVC` | vm-01 / 5 分 |
+| ディスク IO | `DiskIOPressure-1.1`、pressureMode `PremiumStorageP10IOPS`、targetTempDirectory `C:\ChaosTemp` | vm-01 / 10 分 |
+| NSG | `Microsoft-NetworkSecurityGroup` の `SecurityRule-1.0` | VM 用 NSG / 10 分 |
 
-> ※ NIC (`srelab-nic`) は VM 作成時にポータルが自動生成する場合、名前が異なることがあります。
+NSG 実験は Inbound / TCP / Deny、source `10.0.2.0/24`、destination `10.0.1.0/24`、source port `*`、destination port `80`、priority `100`、name `ChaosDenyAppGatewayHTTP` とします。
+実際の型と配列形式は `chaos.bicep` を正本とします。
+SecurityRule 1.0 は既存フローを切断しません。
+実験中の外部編集を避け、手動障害版の `ManualDenyAppGatewayHTTP` と同時実行しないでください。
 
-### 動作確認
+各実験のシステム割り当て ID を有効にし、[権限表](sre-agent-setup.md#モードと権限)に従って VM の Reader または対象 NSG の Network Contributor を割り当てます。
+サブスクリプション全体の Contributor を一括付与する必要はありません。
+現在の公式資料ではこのラボの `Microsoft.Chaos/experiments` モデルを **Experiments (classic)** と分類しています。
+新しい Workspaces の Scenario と同じ API や障害パラメータだと仮定しないでください。
 
-- [ ] `http://{パブリック IP}` にアクセスして nginx のページが表示される
-- [ ] SSH 接続 (`ssh azureuser@{パブリック IP}`) が成功する
-- [ ] `srelab-vm` の **[拡張機能]** に `CustomScript`, `AzureMonitorLinuxAgent`, `ChaosAgent` が表示される
-- [ ] `srelab-law` にパフォーマンス カウンター データが流入し始めている (数分かかる場合あり)
-- [ ] Chaos Studio の **[実験]** で 3 つの実験が表示され、**[開始]** ボタンが有効になっている
-- [ ] 各実験の **[アクセス許可]** でエラーが表示されていない
+## 8. SRE Agent と Workbook
 
----
+[SRE Agent 手順](sre-agent-setup.md)に従い、管理リソースへ対象 RG を登録します。
+Application Gateway と Workbook も同じ RG の管理対象として確認します。
+読み取り専用では Low / ReadOnly、承認付き修復では対象を限定した Review 運用を選びます。
 
-> **注意**: この手順書の作成元である Bicep テンプレートとの差異として、ポータル操作では NIC の名前が自動生成される場合や、一部リソースの作成順序が前後する場合があります。上記の手順順序を守ることで依存関係の問題は回避できます。
+手動で Workbook を作る場合、Azure Monitor の Workbooks で新規ブックを作成し、全 VM と Gateway のメトリクス、LAW の `Perf` / `Event` クエリを追加します。
+`dashboard.bicep` の各パネルと[ライブレポート](live-report.md)の一覧を照合して保存します。
+Bicep の `serializedData` はデプロイ時に ID を解決するため、Bicep ソース全体を Workbook の JSON として貼り付けないでください。
+既定期間は過去 1 時間にし、読み取りモードで毎回 **Auto refresh → 1 minute** を選びます。
+更新間隔は保存されません。
+
+実験開始履歴と変更履歴が必要な場合は、管理者がサブスクリプションの Activity Log に診断設定を作成し、LAW へ送ります。
+この操作は任意であり、通常の RG デプロイとは権限も削除範囲も異なります。
+Cost Management の読み取り権限も別途確認します。
+
+## 9. 構成確認と削除
+
+- [ ] 全 VM は Windows Server 2022、127 GiB Standard_LRS、caching=None。
+- [ ] VM Public IP はなし、または承認済みの限定 RDP 用だけ。
+- [ ] NAT による外向き通信があり、IIS、AMA、Chaos 拡張機能が正常。
+- [ ] Gateway 経由で両 VM のページが表示され、全バックエンドが Healthy。
+- [ ] `Perf` / `Event` が取り込まれ、Workbook のデータ欠損とゼロを区別できる。
+- [ ] 実験 ID の権限は対象 VM / NSG に限定されている。
+- [ ] [デモ手順](demo-scenario.md)に従って 1 障害ずつ検証する。
+
+終了時はデモ用スケジュールを無効化または削除し、保存が必要な記録を退避してから専用 RG を削除します。
+任意のサブスクリプション診断設定は、作成した正確な名前と送信先を確認して個別に削除します。
+VM の停止だけでは Gateway、NAT、Public IP、ディスク等の費用が残ります。
+
+## API と参照元
+
+実装は対応するサービスで 2024 年以降の API を優先します。
+ただし、メトリクスアラート `2018-03-01`、診断設定 `2021-05-01-preview`、Workbook `2023-06-01`、RBAC `2022-04-01`、マネージド ID `2023-01-31`、Application Insights `2020-02-02` は、実装が使用する対応スキーマを維持しています。
+SRE Agent 用の Smart Detector `2021-04-01` と付随する Action Group `2023-09-01-preview` も既存スキーマを維持しています。
+古い日付という理由だけで、存在しない API バージョンへ置換しません。
+SRE Agent は `2025-05-01-preview` であり、Preview の契約変更を確認してから更新します。
+
+- [Chaos の障害ライブラリ](https://learn.microsoft.com/azure/chaos-studio/chaos-studio-fault-library)
+- [Windows AMA の管理](https://learn.microsoft.com/azure/azure-monitor/agents/azure-monitor-agent-manage)
+- [Application Gateway のプローブ](https://learn.microsoft.com/azure/application-gateway/application-gateway-probe-overview)
+- [VM の対応メトリクス](https://learn.microsoft.com/azure/azure-monitor/reference/supported-metrics/microsoft-compute-virtualmachines-metrics)
+- [Gateway の対応メトリクス](https://learn.microsoft.com/azure/azure-monitor/reference/supported-metrics/microsoft-network-applicationgateways-metrics)

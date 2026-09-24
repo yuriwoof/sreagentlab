@@ -1,59 +1,50 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run-chaos.sh – Start a Chaos Studio experiment
-# Usage: ./scripts/run-chaos.sh [cpu|memory|nginx]
+# run-chaos.sh – [start|status|stop] [cpu|memory|iis|diskio|nsg]
+# A scenario alone means start; no arguments means start cpu.
 # =============================================================================
 set -euo pipefail
-
-RESOURCE_GROUP="${RESOURCE_GROUP:-rg-sreagentlab}"
-PREFIX="${PREFIX:-srelab}"
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
-ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
-err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
-
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
+ACTION=start
+case "${1:-}" in start|status|stop) ACTION="$1"; shift ;; esac
 SCENARIO="${1:-cpu}"
-
-case "$SCENARIO" in
-  cpu)
-    EXPERIMENT_NAME="${PREFIX}-cpu-pressure-exp"
-    info "Starting CPU Pressure experiment (95% for 10 min)..."
+[[ $# -le 1 ]] || die "Usage: $0 [start|status|stop] [cpu|memory|iis|diskio|nsg]"
+case "$SCENARIO" in cpu|memory|iis|diskio|nsg) ;; *) die "Unknown scenario '$SCENARIO' (cpu, memory, iis, diskio, nsg)." ;; esac
+preflight
+load_deployment
+EXPERIMENT_NAME="$(resource_name experimentNames "$SCENARIO")"
+URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Chaos/experiments/$EXPERIMENT_NAME"
+if [[ "$ACTION" == start && "$SCENARIO" == nsg ]]; then
+  load_nsg_rules
+  printf '%s' "$NSG_RULES" | python3 -c '
+import json,sys
+r=json.load(sys.stdin)
+if not isinstance(r,list): sys.exit("Invalid NSG rules")
+if any(x.get("properties",x).get("priority")==100 for x in r):
+    sys.exit("Priority 100 is occupied; fix the manual rule or stop the existing Chaos experiment first.")
+' || die "NSG preflight failed."
+fi
+case "$ACTION" in
+  start)
+    az rest --method post --url "$URL/start?api-version=2024-01-01" --output json || die "Chaos start failed."
+    ok "Start request accepted: $EXPERIMENT_NAME (check status)."
     ;;
-  memory)
-    EXPERIMENT_NAME="${PREFIX}-memory-pressure-exp"
-    info "Starting Memory Pressure experiment (90% for 10 min)..."
+  stop)
+    az rest --method post --url "$URL/cancel?api-version=2024-01-01" --output json || die "Chaos cancellation failed."
+    warn "Cancellation accepted, not confirmed recovered. Wait for terminal execution status and verify."
+    [[ "$SCENARIO" != iis ]] || info "If automatic restoration fails after cancellation completes: bash scripts/fix-iis.sh"
     ;;
-  nginx)
-    EXPERIMENT_NAME="${PREFIX}-stop-nginx-exp"
-    info "Starting nginx Stop Service experiment (5 min)..."
-    ;;
-  *)
-    err "Unknown scenario: $SCENARIO"
-    echo "Usage: $0 [cpu|memory|nginx]"
-    exit 1
+  status)
+    NEXT="$URL/executions?api-version=2024-01-01"
+    SEEN=$'\n'
+    while [[ -n "$NEXT" ]]; do
+      [[ "$NEXT" == "$URL/executions?"* && "$SEEN" != *$'\n'"$NEXT"$'\n'* ]] || die "Unsafe or repeated execution pagination URL."
+      SEEN+="$NEXT"$'\n'
+      PAGE="$(az rest --method get --url "$NEXT" --output json)" || die "Cannot read Chaos executions."
+      printf '%s' "$PAGE" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d["value"],list); print(json.dumps(d["value"],indent=2))'
+      NEXT="$(printf '%s' "$PAGE" | python3 -c 'import json,sys; d=json.load(sys.stdin); n=d.get("nextLink") or ""; assert isinstance(n,str); print(n)')"
+    done
     ;;
 esac
-
-# Start the experiment
-info "Experiment: $EXPERIMENT_NAME"
-info "Resource Group: $RESOURCE_GROUP"
-
-az rest \
-  --method post \
-  --url "https://management.azure.com/subscriptions/$(az account show --query id -o tsv)/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Chaos/experiments/${EXPERIMENT_NAME}/start?api-version=2024-01-01" \
-  --output json
-
-ok "Experiment '$EXPERIMENT_NAME' started!"
-echo ""
-info "Monitor the experiment:"
-echo "  az rest --method get \\"
-echo "    --url \"https://management.azure.com/subscriptions/\$(az account show --query id -o tsv)/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Chaos/experiments/${EXPERIMENT_NAME}/executions?api-version=2024-01-01\""
-echo ""
-info "Monitor VM CPU in Azure Monitor:"
-echo "  https://portal.azure.com/#@/resource/subscriptions/$(az account show --query id -o tsv 2>/dev/null || echo '<SUB_ID>')/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Compute/virtualMachines/${PREFIX}-vm/metrics"
-echo ""
+printf '  bash %q status %q\n' "$REPO_ROOT/scripts/run-chaos.sh" "$SCENARIO"
+verify_commands

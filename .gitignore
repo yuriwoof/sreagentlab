@@ -1,0 +1,8 @@
+main.json
+modules/*.json
+main.parameters.local.json
+__pycache__/
+.deploy-parameters.*.json
+.deploy-errors.*.log
+tests/.script-test-*/
+.azure/validate-status.json
