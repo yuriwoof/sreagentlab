@@ -112,18 +112,6 @@ module sreAgent 'modules/sre-agent.bicep' = {
     logAnalyticsWorkspaceId: monitoring.outputs.lawId
   }
 }
-module dashboard 'modules/dashboard.bicep' = {
-  name: 'deploy-dashboard'
-  params: {
-    location: location
-    prefix: prefix
-    tags: tags
-    vmIds: vm.outputs.vmIds
-    appGwId: appGw.outputs.appGwId
-    lawId: monitoring.outputs.lawId
-  }
-}
-
 // ===== VM-scoped RBAC ========================================================
 resource targetVms 'Microsoft.Compute/virtualMachines@2024-07-01' existing = [for name in names: {
   name: name
@@ -198,6 +186,6 @@ output lawName string = monitoring.outputs.lawName
 output lawId string = monitoring.outputs.lawId
 output experimentNames object = chaos.outputs.experimentNames
 output resourceGroupName string = resourceGroup().name
+output sreAgentName string = sreAgent.outputs.agentName
+// Live reports (preview) are created from chat in the SRE Agent portal; there is no ARM resource for them.
 output sreAgentPortalUrl string = sreAgent.outputs.agentPortalUrl
-output workbookId string = dashboard.outputs.workbookId
-output workbookUrl string = dashboard.outputs.workbookUrl

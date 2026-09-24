@@ -1,98 +1,226 @@
-# Workbook とライブレポート
+# SRE Agent のライブレポート
 
-## Workbook の開き方
+## ライブレポートとは
 
-`deploy.sh` が表示する Workbook リンクを開きます。
-リンクを控えていない場合、対象 RG の成功した main デプロイの出力で `workbookUrl` / `workbookId` を確認します。
-Azure Portal の **Monitor → Workbooks** から、対象サブスクリプションと RG を絞り、`<prefix>-live-report` を開く方法もあります。
-LAW を起点に保存した Workbook と、同名の別 RG の Workbook を取り違えないでください。
+[ライブレポート (プレビュー)](https://learn.microsoft.com/azure/sre-agent/live-reports) は、Azure SRE Agent の機能です。
+チャットで必要なビューを説明すると、エージェントがレポートを作成し、エージェントの **ライブ レポート** ページに保存します。
+保存後はチャート、表、ステータス表示のレイアウトを維持したまま、データだけを再取得できます。
 
-1. 読み取りモードで開き、既定の **Last 1 hour**（過去 1 時間）を確認します。
-2. **Auto refresh → 1 minute** を選びます。
-3. 別タブでデプロイ結果の Gateway URL を開き、HTTP 応答とグラフを照合します。
+このラボでは、VM と Application Gateway の状態を一画面で確認する「運用ダッシュボード」としてライブレポートを使用します。
+ライブレポートは SRE Agent ポータルでチャットから作成するものであり、Bicep や ARM テンプレートのリソースではありません。
+そのため `main.bicep` はレポートを作成しません。
+デプロイ後に、この手順でレポートを作成します。
+## 前提条件
 
-自動更新間隔は Workbook に保存されません。
-開き直すたびに設定が必要です。
-編集モードでは自動更新しません。
-これは[公式の Workbook 管理仕様](https://learn.microsoft.com/azure/azure-monitor/visualize/workbooks-manage#set-up-auto-refresh)による制約であり、Bicep に未対応の永続化プロパティを追加して回避する構成ではありません。
+| 項目 | このラボでの準備 |
+|---|---|
+| レポートを作成する利用者の権限 | エージェントに対する読み書き権限が必要です。`main.bicep` はデプロイ実行者に **SRE Agent Administrator** を割り当てます。 |
+| レポートを閲覧する利用者の権限 | 共有先にも **SRE Agent Standard User** または **SRE Agent Administrator** が必要です。リンクを共有しても権限は付与されません。 |
+| エージェントのデータアクセス | エージェントのマネージド ID には、ラボ RG の Reader と Log Analytics Reader を割り当てています（[sre-agent.bicep](../modules/sre-agent.bicep)）。 |
+| データソース | 組み込みの Azure Monitor メトリクス、Log Analytics、Resource Graph を使用します（[コネクタ](https://learn.microsoft.com/azure/sre-agent/connectors)）。 |
+| ゲストのログ | AMA と DCR が `Perf`（CPU、メモリ、ディスク、ネットワーク）と `Event`（Service Control Manager 7036）を LAW に送ります。 |
+| Chaos 実験の履歴（任意） | `AzureActivity` を使う場合は、[定期タスク](scheduled-tasks.md)に記載した `enable-activity-log.sh` でサブスクリプションの Activity Log を LAW に転送します。 |
 
-## 表示内容とデータソース
+レポートは、エージェントに設定済みのツールとコネクタ、およびそれらに付与された権限の範囲でのみデータを取得できます。
+レポートを作成しても、コネクタの追加や他システムへのアクセス権の付与は行われません。
+公式ドキュメントでは、接続データとして Kusto を含むサポート対象の MCP コネクタが例示されています。
+作成時にエージェントが提示するツールに Azure Monitor メトリクスと Log Analytics のクエリが含まれることを確認してください。
+含まれない場合は、レポートの作成を続けず、エージェントのコネクタとツール設定を確認します。
 
-| パネル | データソース | 確認点 |
+## レポートの内容
+
+| セクション | データソース | 表示内容 |
 |---|---|---|
-| VM ごとの CPU | Azure Monitor の Percentage CPU | VM 間の差と実験期間 |
-| OS ディスク IOPS / キュー | Azure Monitor の OS Disk IOPS Consumed Percentage / OS Disk Queue Depth | VM SKU の対応、負荷前後の変化 |
-| Network in / out | Azure Monitor の Network In Total / Network Out Total | 実験とリクエスト時刻との相関 |
-| Available memory | LAW の `Perf` | VM 別の MiB、取り込み時刻 |
-| Healthy / Unhealthy | Gateway の HealthyHostCount / UnhealthyHostCount | 片系か全系か |
-| リクエスト数 | Gateway の TotalRequests | 観測期間にトラフィックがあったか |
-| frontend / backend 5xx | ResponseStatus / BackendResponseStatus の HttpStatusGroup=5xx | Gateway 自身のエラーと IIS のエラーを区別 |
-| IIS 停止履歴 | LAW の `Event`、SCM 7036 | stopped の履歴であり、現在状態ではない |
-| 実験開始履歴 | LAW の `AzureActivity` | 任意の Activity Log エクスポートが必要 |
+| VM ごとの CPU | Azure Monitor メトリクス `Percentage CPU` | 直近 1 時間の時系列 |
+| VM ごとの空きメモリ | LAW `Perf` の `Memory` / `Available Bytes` | VM 別の MiB（時系列） |
+| OS ディスク | `OS Disk IOPS Consumed Percentage`、`OS Disk Queue Depth` | IOPS 上限への到達とキューの増加 |
+| ネットワーク | `Network In Total`、`Network Out Total`（補助: `Perf` の Network Interface） | VM 別の送受信量 |
+| App Gateway バックエンド | `HealthyHostCount`、`UnhealthyHostCount` | 正常と異常の台数、ステータス表示 |
+| App Gateway リクエスト | `TotalRequests`、`ResponseStatus` と `BackendResponseStatus`（`HttpStatusGroup = 5xx`） | リクエスト数、Gateway の 5xx と IIS の 5xx の区別 |
+| IIS 停止イベント | LAW `Event`（System、Service Control Manager、Event ID 7036、W3SVC、stopped） | VM、時刻、メッセージの一覧 |
+| Chaos 実験の開始履歴 | LAW `AzureActivity`（`Microsoft.Chaos/experiments/start/action`） | 実験名、開始時刻、状態、実行者 |
+| アラート | 発報中と解消済みの Azure Monitor アラート | ラボ RG のアラート一覧 |
 
-プラットフォームのグラフは Azure Monitor を直接参照します。
-App Gateway の `AllMetrics` 診断設定を LAW に送っていますが、グラフは `AzureMetrics` テーブルの到着を前提にしません。
-アクセスログ、パフォーマンスログ、ファイアウォールログは不要です。
+App Gateway の診断設定は `AllMetrics` を LAW に送ります。
+ただし `AzureMetrics` テーブルにはディメンションが含まれないため、5xx の内訳は Azure Monitor メトリクスから取得します。
+`VM Cached IOPS Consumed Percentage` は、OS ディスクが caching=None のためデータが出ない場合があります。
 
-`VM Cached IOPS Consumed Percentage` は別途参考アラートとして構成しています。
-OS ディスクが caching=None のため、値が出ない場合があります。
-キャッシュを使わないディスクの律速判定には、OS ディスクの指標とゲスト IO を確認します。
+## ライブレポートを作成する
 
-Gateway が生成する 502 は frontend 5xx です。
-backend 5xx はバックエンドが返した 5xx のみであり、同時に発報する保証はありません。
-ブラウザの更新などでリクエストを送らない場合、frontend 5xx の件数も増えません。
+1. `deploy.sh` が表示する **SRE Agent** のリンク（デプロイ出力 `sreAgentPortalUrl`）からエージェントを開きます。
+2. ナビゲーションで **ライブ レポート** を選びます。
+3. **+ 新しいレポート** を選びます。エージェントが利用可能なツールを確認します。
+4. 下記のプロンプトを入力し、エージェントからの追加の質問に答えます。
+5. レポートで使用するツールを確認します。**読み取り専用のツールだけを承認**します。
+6. レポートが保存され、ギャラリーに表示されるまで待ちます。
 
-## 実験開始履歴を追加する場合
+> スクリーンショット挿入位置: ライブ レポートのギャラリーと **+ 新しいレポート**。
+>
+> スクリーンショット挿入位置: 使用ツールの確認と承認の画面。
 
-通常の RG デプロイにはサブスクリプション診断設定を含めません。
-権限を持つ管理者が任意の手順として実行します。
+### プロンプト例 1: ラボの状態ダッシュボード
 
-```bash
-export RESOURCE_GROUP="rg-sreagentlab"
-bash scripts/enable-activity-log.sh
-```
-
-`modules/activity-log.bicep` はサブスクリプション全体の Activity Log を対象 LAW へ送ります。
-Workbook はそのうちラボ RG の Chaos 実験だけに表示を限定します。
-表示フィルターがエクスポート範囲を RG に制限するわけではないため、費用と取り込み可能な操作情報を事前に確認してください。
-既存の共有診断設定を上書きせず、作成した設定名と送信先を記録します。
-スクリプトの設定名は `sreagentlab-activity-${RESOURCE_GROUP}` です。
-同名設定の送信先が異なる場合や、別設定ですでに同じ LAW に転送している場合は、変更せず停止します。
-
-診断設定の作成権限を、SRE Agent に暗黙に付与しません。
-詳細な権限と KQL は[定期タスク](scheduled-tasks.md)を参照します。
-エクスポート有効化前の履歴が自動で遡って入るとは限りません。
-テーブル未作成や取り込み遅延のため、最初は空欄やクエリエラーになる場合があります。
-
-## SRE Agent へのライブ報告プロンプト
+`<RG>`、`<prefix>`、`<LAW 名>` は、デプロイ出力の `resourceGroupName`、パラメータの `prefix`、出力の `lawName` に置き換えます。
 
 ```text
-対象 RG は <対象 RG> です。
-この RG の全 Windows VM と Application Gateway の直近 30 分を、読み取り専用で報告してください。
+「SRE Lab Live Status」という名前のライブレポートを作成してください。
+対象はリソースグループ <RG> の Windows VM（<prefix>-vm-01、<prefix>-vm-02 …）と
+Application Gateway <prefix>-appgw です。既定の期間は直近 1 時間とし、期間セレクターを付けてください。
 
-1. VM ごとの CPU、Available Bytes、OS Disk IOPS Consumed Percentage、OS Disk Queue Depth、
-   Network In/Out と、正常時または他 VM との比較。
-2. Gateway の Healthy/UnhealthyHostCount、TotalRequests、frontend/backend 5xx。
-3. 発報中と解消済みのアラート、IIS 停止イベント、取得できれば実験開始と構成変更の履歴。
-4. 原因候補を、根拠となる指標、ログ、対象 ID、時刻と対応付けて提示。
-5. 調査対象期間、取得時刻、欠損、権限不足、取り込み遅延、未確認事項。
+1. VM ごとの時系列チャート（Azure Monitor メトリクス）:
+   Percentage CPU、OS Disk IOPS Consumed Percentage、OS Disk Queue Depth、
+   Network In Total、Network Out Total
+2. VM ごとの空きメモリの時系列チャート:
+   Log Analytics ワークスペース <LAW 名> の Perf テーブル、ObjectName "Memory"、CounterName "Available Bytes"（MiB 表示）
+3. Application Gateway のステータス表示と時系列チャート:
+   HealthyHostCount、UnhealthyHostCount、TotalRequests、
+   ResponseStatus と BackendResponseStatus の HttpStatusGroup = 5xx を別々のシリーズで表示
+   UnhealthyHostCount が 1 以上なら異常のステータスにしてください
+4. IIS 停止イベントの表（新しい順）:
+   Event テーブル、System ログ、Source "Service Control Manager"、EventID 7036、
+   W3SVC（World Wide Web Publishing Service）が stopped になったイベント
+5. Chaos 実験の開始履歴の表:
+   AzureActivity テーブルの OperationNameValue "Microsoft.Chaos/experiments/start/action"、
+   ResourceGroup が <RG> のもの。テーブルがない、または空の場合はその旨を表示してください
+6. ラボ RG の Azure Monitor アラートの表（発報中と解消済み、重大度、対象、時刻）
 
-欠損をゼロと解釈せず、実測事実と推測を分けてください。
-W3SVC の過去の停止履歴だけで現在も停止中と判断しないでください。
-修復、再起動、リソース変更、定期タスクの作成はしないでください。
+データはコネクタとツールの結果だけで表示し、モデルによる要約セクションは作成しないでください。
+リソースを変更するボタンやアクションは追加せず、読み取り専用のツールだけを使用してください。
+欠損値は 0 として描画せず、データなしと表示してください。
 ```
 
-Workbook の自動更新はグラフの再取得であり、SRE Agent の推論を毎分自動実行する機能ではありません。
-このプロンプトは必要なときにチャットへ入力します。
-定期実行を希望する場合だけ、別の[定期タスク手順](scheduled-tasks.md)で明示的に作成します。
+モデルによる要約や分析のセクションは、更新のたびに AAU を消費します。
+このため、状態ダッシュボードは表示のみで作成し、原因分析はチャットで個別に依頼します。
 
-## 結果の確認と終了
+### プロンプト例 2: 障害デモ用タイムライン
 
-AMA の `Perf` / `Event` と Activity Log の転送には遅延があります。
-1 分更新にしても、データが 1 分以内に到着する保証にはなりません。
-空のパネルは、障害なしの証拠ではありません。
-対象 ID、時間範囲、エージェント状態、DCR 関連付け、診断設定、読み取り権限を順に確認します。
+障害注入の前後を 1 画面で比較する場合に作成します。
 
-ライブレポートは読み取り専用なので、終了時は画面を閉じるだけです。
-リソースの停止や削除は行いません。
-デモ全体が終了したら、スケジュールの停止と専用 RG のクリーンアップを別途実施してください。
+```text
+「SRE Lab Incident Timeline」という名前のライブレポートを作成してください。
+対象はリソースグループ <RG> です。既定の期間は直近 3 時間とし、期間セレクターを付けてください。
+
+- Chaos 実験の開始と終了（Chaos Studio の実験の実行履歴、または AzureActivity）
+- Application Gateway の UnhealthyHostCount と ResponseStatus 5xx の時系列
+- <prefix>-vm-01 と <prefix>-vm-02 の Percentage CPU、OS Disk IOPS Consumed Percentage の時系列
+- W3SVC 停止イベント（Event、Service Control Manager、7036）
+- NSG <prefix>-nsg と Application Gateway の構成変更（AzureActivity の書き込み操作と削除操作）
+
+これらを同じ時間軸に並べてください。
+表示のみとし、モデルによる要約、リソース変更のボタンやアクションは追加しないでください。
+```
+
+## レポートを開き、再読み込みして更新する
+
+1. **ライブ レポート** に戻り、レポートのタイルを選びます。
+2. 現在のチャート、表、ステータス表示を確認します。
+3. レポートは最大 5 分間キャッシュされたツールの結果を使う場合があります。障害デモ中は **再読み込み** を選び、最新のデータを取得します。
+4. レイアウト、フィルター、データソースを変更する場合は、**作成スレッドを開く** を選び、チャットで変更点を伝えて新しいバージョンを保存させます。
+5. バージョン ピッカーで以前のバージョンを確認できます。以前のバージョンに保存されるのはレイアウトと構成であり、過去のデータではありません。
+
+公式ドキュメントに一定間隔の自動更新機能の記載はありません。
+デモでは、障害注入後や復旧後に **再読み込み** を選びます。
+AMA の `Perf` / `Event` と Activity Log は、取り込みに数分かかることがあります。
+再読み込みしても、データの到着が遅れている場合は反映されません。
+
+## 共有、エクスポート、削除
+
+- **共有**: **レポートへのリンクをコピー** を選びます。共有先には、エージェントに対する SRE Agent Standard User または SRE Agent Administrator のロールが必要です。
+- **エクスポート**: オーバーフロー メニューの **HTML のダウンロード** で、静的なスナップショットを保存します。ファイルにはリソース名や IP アドレスが含まれるため、取り扱いに注意します。
+- **削除**: オーバーフロー メニューの **削除** で完全に削除します。SRE Agent Administrator のロールが必要です。
+
+レポートはエージェントに保存されます。
+`cleanup.sh` でラボ RG を削除するとエージェントも削除されるため、残したいレポートは事前に HTML で保存します。
+ダウンロードした HTML はローカルファイルのため、`cleanup.sh` では削除されません。
+
+## 使用量とコスト
+
+- ライブレポートの作成と、既存レポートの更新（レイアウトの変更など）は、アクティブ フローの AAU を消費します。
+- コネクタとツールでデータを取得するだけの再読み込みは、アクティブ フローの AAU を消費しません。
+- モデルによる要約や分析を含むレポートは、再読み込みのたびに AAU を消費します。
+- プレビューでは、レポートごとやユーザーごとの AAU 予算を設定できません。モデルの呼び出しを繰り返すレポートは作成しないでください。
+
+消費量はエージェントの **設定** > **エージェントの消費** で確認します。
+料金は[価格と課金](https://learn.microsoft.com/azure/sre-agent/pricing-billing)を参照してください。
+
+## プレビューの制限事項
+
+- 別のテナントからエージェントにアクセスした場合、レポートのツール呼び出しを承認できません。テナント間で共有するレポートには、承認が必要なツールを含めないでください。
+- 生成されるレポートの HTML は 10 MB 以下である必要があります。
+- モデルがレート制限された場合、そのセクションは HTTP 429 を返します。時間をおいて再試行します。
+
+## チャットでその場のレポートを依頼する
+
+保存するほどではない確認は、ライブレポートではなくエージェントとのチャットで依頼します。
+チャットでの依頼はその都度 AAU を消費し、結果は保存されたダッシュボードとしては残りません。
+
+```text
+rg-sreagentlab の全 VM と App Gateway について、直近 30 分のメトリックとアラート状況を表にまとめ、
+異常があれば原因候補を挙げてください。
+各値の期間と取得時刻、根拠としたメトリックやログ、欠損や未確認事項も示してください。
+読み取り専用で調査し、修復やリソースの変更はしないでください。
+```
+
+RG 名は実際の値に置き換えてください。
+
+## 参考: Log Analytics のクエリ
+
+レポートの作成時にエージェントが生成したクエリを確認する場合や、作成スレッドでクエリを指定する場合に使用します。
+`<VM 名の接頭辞>` は `<prefix>-vm-` に置き換えます。
+
+```kusto
+// VM ごとの空きメモリ (MiB)
+Perf
+| where TimeGenerated > ago(1h)
+| where Computer startswith "<VM 名の接頭辞>"
+| where ObjectName == "Memory" and CounterName == "Available Bytes"
+| summarize AvailableMiB = avg(CounterValue) / 1048576.0 by Computer, bin(TimeGenerated, 1m)
+| order by TimeGenerated asc
+```
+
+```kusto
+// W3SVC の停止イベント (Service Control Manager 7036)
+Event
+| where TimeGenerated > ago(24h)
+| where Computer startswith "<VM 名の接頭辞>"
+| where EventLog == "System" and Source == "Service Control Manager" and EventID == 7036
+| where RenderedDescription has_any ("World Wide Web Publishing Service", "W3SVC")
+    and RenderedDescription has "stopped"
+| project TimeGenerated, Computer, RenderedDescription
+| order by TimeGenerated desc
+```
+
+```kusto
+// Chaos 実験の開始履歴 (任意の Activity Log 転送が必要)
+AzureActivity
+| where TimeGenerated > ago(24h)
+| where ResourceGroup =~ "<RG>"
+| where OperationNameValue =~ "Microsoft.Chaos/experiments/start/action"
+| project TimeGenerated, Resource = tostring(split(ResourceId, "/")[-1]), ActivityStatusValue, Caller, CorrelationId
+| order by TimeGenerated desc
+```
+
+## トラブルシューティング
+
+| 症状 | 確認すること |
+|---|---|
+| エージェントがレポートを作成できない | 利用者にエージェントの読み書き権限があるか、必要なツールとコネクタが正常か |
+| データが古く見える | **再読み込み** でキャッシュを回避したか、データソースに新しいデータが届いているか |
+| メモリやイベントの表が空 | AMA 拡張機能と DCR の関連付け、`Perf` / `Event` の取り込み遅延 |
+| Chaos 実験の履歴が空 | `enable-activity-log.sh` を実行したか。転送は有効化以降の操作のみが対象 |
+| 5xx が 0 のまま | ブラウザなどでリクエストを送ったか。Gateway が返す 502 は BackendResponseStatus に含まれない |
+| ディスクのメトリクスがない | VM サイズがディスク指標に対応しているか（既定は `Standard_D2s_v5`） |
+
+空のセクションは、障害がないことの証拠ではありません。
+対象リソース、期間、ツールの権限、データの到着を順に確認してください。
+
+## 公式ドキュメント
+
+- [Azure SRE Agent のライブ レポート (プレビュー)](https://learn.microsoft.com/azure/sre-agent/live-reports)
+- [Azure SRE Agent のコネクタ](https://learn.microsoft.com/azure/sre-agent/connectors)
+- [ユーザーのロールとアクセス許可](https://learn.microsoft.com/azure/sre-agent/user-roles)
+- [ツールのアクセス ポリシー](https://learn.microsoft.com/azure/sre-agent/tool-access-policies)
+- [価格と課金](https://learn.microsoft.com/azure/sre-agent/pricing-billing)
+
+画面の項目名は日本語版ドキュメントの訳語に基づきます。
+実際の表示がプレビュー中に変わる場合があるため、ポータルの表示を優先してください。

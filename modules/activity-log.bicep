@@ -15,7 +15,7 @@ param diagnosticSettingName string
 // Supported subscription categories and scope:
 // https://learn.microsoft.com/azure/azure-monitor/data-collection/resource-manager-diagnostic-settings#diagnostic-setting-for-activity-log
 // Diagnostic settings do not support tags. Export covers the entire subscription;
-// workbook queries restrict the displayed activity to the lab resource group.
+// SRE Agent live report / scheduled task queries must filter to the lab resource group.
 resource activityLog 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
   name: diagnosticSettingName
   scope: subscription()

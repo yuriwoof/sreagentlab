@@ -97,6 +97,8 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2024-03-11' = {
             '\\LogicalDisk(*)\\Disk Reads/sec'
             '\\LogicalDisk(*)\\Disk Writes/sec'
             '\\LogicalDisk(*)\\Avg. Disk Queue Length'
+            '\\Network Interface(*)\\Bytes Received/sec'
+            '\\Network Interface(*)\\Bytes Sent/sec'
           ]
         }
       ]

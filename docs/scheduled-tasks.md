@@ -3,10 +3,10 @@
 ## 対象と権限の準備
 
 Azure SRE Agent の **Scheduled tasks** で、コストと操作履歴を読み取り専用で報告するタスクを 2 つ作成します。
-これはエージェントポータルの機能であり、ローカル CLI のスケジューラーや Workbook の更新設定とは別です。
+これはエージェントポータルの機能であり、ローカル CLI のスケジューラーやライブレポートの再読み込みとは別です。
 手順は [Create and edit scheduled tasks](https://learn.microsoft.com/azure/sre-agent/create-scheduled-task) を根拠とします。
 
-管理対象はラボ RG の全 VM、Application Gateway、Workbook を含みます。
+管理対象はラボ RG の全 VM と Application Gateway を含みます。
 RG の管理リソース指定だけでは、サブスクリプション全体の操作や課金データの読み取り権限は得られません。
 
 | 情報 | 取得元 | 別途確認する権限 |
