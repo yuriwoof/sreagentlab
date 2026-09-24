@@ -8,17 +8,23 @@
     "adminUsername": {
       "value": "azureuser"
     },
-    "sshPublicKey": {
-      "value": "<YOUR_SSH_PUBLIC_KEY>"
+    "adminPassword": {
+      "value": ""
     },
     "alertEmail": {
       "value": "<YOUR_EMAIL_ADDRESS>"
     },
-    "allowedSshSource": {
-      "value": "<YOUR_PUBLIC_IP>/32"
+    "allowedRdpSource": {
+      "value": "127.0.0.1/32"
+    },
+    "enableRdpPublicIp": {
+      "value": false
+    },
+    "vmCount": {
+      "value": 2
     },
     "vmSize": {
-      "value": "Standard_B2s"
+      "value": "Standard_D2s_v5"
     },
     "sreAgentName": {
       "value": "srelab-agent"

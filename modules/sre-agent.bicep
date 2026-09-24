@@ -10,6 +10,8 @@ param location string
 @description('Resource name prefix')
 param prefix string
 
+param tags object
+
 @description('SRE Agent name')
 param agentName string
 
@@ -27,9 +29,10 @@ param logAnalyticsWorkspaceId string
 // ---------------------------------------------------------------------------
 // User-Assigned Managed Identity for SRE Agent
 // ---------------------------------------------------------------------------
-resource sreIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+resource sreIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: '${prefix}-sre-identity'
   location: location
+  tags: tags
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +41,7 @@ resource sreIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-3
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   name: '${prefix}-sre-appinsights'
   location: location
+  tags: tags
   kind: 'web'
   properties: {
     Application_Type: 'web'
@@ -49,9 +53,10 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 // ---------------------------------------------------------------------------
 // Action Group for Smart Detection alerts
 // ---------------------------------------------------------------------------
-resource smartDetectionActionGroup 'Microsoft.Insights/actionGroups@2023-09-01-preview' = {
+resource smartDetectionActionGroup 'Microsoft.Insights/actionGroups@2024-10-01-preview' = {
   name: '${prefix}-sre-smart-detection-ag'
   location: 'global'
+  tags: tags
   properties: {
     groupShortName: 'SmartDetect'
     enabled: true
@@ -76,6 +81,7 @@ resource smartDetectionActionGroup 'Microsoft.Insights/actionGroups@2023-09-01-p
 resource failureAnomaliesDetector 'Microsoft.AlertsManagement/smartDetectorAlertRules@2021-04-01' = {
   name: 'Failure Anomalies - ${prefix}-sre-appinsights'
   location: 'global'
+  tags: tags
   properties: {
     description: 'Failure Anomalies notifies you of an unusual rise in the rate of failed HTTP requests or dependency calls.'
     state: 'Enabled'
@@ -136,6 +142,7 @@ resource contributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
 resource sreAgent 'Microsoft.App/agents@2025-05-01-preview' = {
   name: agentName
   location: location
+  tags: tags
   identity: {
     type: 'SystemAssigned, UserAssigned'
     userAssignedIdentities: {

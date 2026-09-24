@@ -1,7 +1,7 @@
 // =============================================================================
 // Module: monitoring.bicep
-// Description: Log Analytics Workspace, VM Insights (Azure Monitor Agent),
-//              and Metric Alert for high CPU usage.
+// Description: Windows VM and Application Gateway monitoring with Azure Monitor,
+//              Log Analytics, performance counters, and IIS service-stop alerts.
 // =============================================================================
 
 @description('Azure region for deployment')
@@ -10,28 +10,42 @@ param location string
 @description('Resource name prefix')
 param prefix string
 
-@description('Target VM resource ID')
-param vmId string
+@description('Tags applied to every resource type that supports tags')
+param tags object
 
-@description('Target VM name')
-param vmName string
+@minLength(1)
+@description('Target Windows VM names in this resource group; same order and length as vmIds')
+param vmNames string[]
+
+@minLength(1)
+@description('Target Windows VM resource IDs; same order and length as vmNames')
+param vmIds string[]
+
+@description('Application Gateway name in this resource group')
+param appGwName string
 
 @description('Action Group email address for alert notifications')
 param alertEmail string
 
 // ---------------------------------------------------------------------------
-// Existing VM reference (for scope bindings)
+// Existing resources (for scope bindings)
 // ---------------------------------------------------------------------------
-resource targetVm 'Microsoft.Compute/virtualMachines@2024-07-01' existing = {
+resource targetVms 'Microsoft.Compute/virtualMachines@2024-07-01' existing = [for vmName in vmNames: {
   name: vmName
+}]
+
+resource appGw 'Microsoft.Network/applicationGateways@2024-05-01' existing = {
+  name: appGwName
 }
 
 // ---------------------------------------------------------------------------
-// Log Analytics Workspace
+// Log Analytics Workspace and built-in tables (before DCR/query validation)
+// Tables, DCR associations, and diagnostic settings do not support tags.
 // ---------------------------------------------------------------------------
-resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+resource law 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
   name: '${prefix}-law'
   location: location
+  tags: tags
   properties: {
     sku: {
       name: 'PerGB2018'
@@ -40,18 +54,15 @@ resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Ensure built-in tables are provisioned before DCR references them
-// ---------------------------------------------------------------------------
-resource syslogTable 'Microsoft.OperationalInsights/workspaces/tables@2022-10-01' = {
+resource eventTable 'Microsoft.OperationalInsights/workspaces/tables@2025-02-01' = {
   parent: law
-  name: 'Syslog'
+  name: 'Event'
   properties: {
     retentionInDays: 30
   }
 }
 
-resource perfTable 'Microsoft.OperationalInsights/workspaces/tables@2022-10-01' = {
+resource perfTable 'Microsoft.OperationalInsights/workspaces/tables@2025-02-01' = {
   parent: law
   name: 'Perf'
   properties: {
@@ -60,48 +71,43 @@ resource perfTable 'Microsoft.OperationalInsights/workspaces/tables@2022-10-01' 
 }
 
 // ---------------------------------------------------------------------------
-// Data Collection Rule – perf counters & syslog
+// Data Collection Rule – Windows performance and service-state events
+// Collect all SCM 7036 events; service/state filtering belongs in the query,
+// not in a localized rendered-message XPath.
 // ---------------------------------------------------------------------------
-resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
+resource dcr 'Microsoft.Insights/dataCollectionRules@2024-03-11' = {
   name: '${prefix}-dcr'
   location: location
+  tags: tags
+  kind: 'Windows'
   properties: {
     dataSources: {
       performanceCounters: [
         {
-          name: 'perfCounters'
+          name: 'windowsPerfCounters'
           streams: [
             'Microsoft-Perf'
           ]
           samplingFrequencyInSeconds: 10
           counterSpecifiers: [
             '\\Processor Information(_Total)\\% Processor Time'
-            '\\Memory\\% Committed Bytes In Use'
             '\\Memory\\Available Bytes'
-            '\\LogicalDisk(_Total)\\% Free Space'
+            '\\Memory\\% Committed Bytes In Use'
+            '\\LogicalDisk(*)\\% Free Space'
+            '\\LogicalDisk(*)\\Disk Reads/sec'
+            '\\LogicalDisk(*)\\Disk Writes/sec'
+            '\\LogicalDisk(*)\\Avg. Disk Queue Length'
           ]
         }
       ]
-      syslog: [
+      windowsEventLogs: [
         {
-          name: 'syslog'
+          name: 'serviceStateEvents'
           streams: [
-            'Microsoft-Syslog'
+            'Microsoft-Event'
           ]
-          facilityNames: [
-            'auth'
-            'daemon'
-            'kern'
-            'syslog'
-          ]
-          logLevels: [
-            'Notice'
-            'Info'
-            'Warning'
-            'Error'
-            'Critical'
-            'Alert'
-            'Emergency'
+          xPathQueries: [
+            'System!*[System[Provider[@Name=\'Service Control Manager\'] and (EventID=7036)]]'
           ]
         }
       ]
@@ -118,14 +124,7 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
       {
         streams: [
           'Microsoft-Perf'
-        ]
-        destinations: [
-          'logAnalyticsDest'
-        ]
-      }
-      {
-        streams: [
-          'Microsoft-Syslog'
+          'Microsoft-Event'
         ]
         destinations: [
           'logAnalyticsDest'
@@ -134,50 +133,72 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
     ]
   }
   dependsOn: [
-    syslogTable
+    eventTable
     perfTable
   ]
 }
 
 // ---------------------------------------------------------------------------
-// Azure Monitor Agent Extension
+// Windows Azure Monitor Agent and association on every VM
+// No user-assigned identity selector: AMA uses the system-assigned identity,
+// even though the VM also has the shared user-assigned identity.
+// https://learn.microsoft.com/azure/azure-monitor/agents/azure-monitor-agent-manage
 // ---------------------------------------------------------------------------
-resource amaExtension 'Microsoft.Compute/virtualMachines/extensions@2024-07-01' = {
-  parent: targetVm
-  name: 'AzureMonitorLinuxAgent'
+resource amaExtensions 'Microsoft.Compute/virtualMachines/extensions@2024-07-01' = [for (vmName, i) in vmNames: {
+  parent: targetVms[i]
+  name: 'AzureMonitorWindowsAgent'
   location: location
+  tags: tags
   properties: {
     publisher: 'Microsoft.Azure.Monitor'
-    type: 'AzureMonitorLinuxAgent'
+    type: 'AzureMonitorWindowsAgent'
     typeHandlerVersion: '1.0'
     autoUpgradeMinorVersion: true
     enableAutomaticUpgrade: true
+    settings: {
+      authentication: {
+        managedIdentity: {}
+      }
+    }
   }
-  dependsOn: [
-    dcr
-  ]
-}
+}]
 
-// ---------------------------------------------------------------------------
-// Data Collection Rule Association
-// ---------------------------------------------------------------------------
-resource dcrAssociation 'Microsoft.Insights/dataCollectionRuleAssociations@2023-03-11' = {
+resource dcrAssociations 'Microsoft.Insights/dataCollectionRuleAssociations@2024-03-11' = [for (vmName, i) in vmNames: {
   name: '${prefix}-dcr-assoc'
-  scope: targetVm
+  scope: targetVms[i]
   properties: {
     dataCollectionRuleId: dcr.id
   }
   dependsOn: [
-    amaExtension
+    amaExtensions[i]
   ]
+}]
+
+// ---------------------------------------------------------------------------
+// Application Gateway metrics only; no Access, Performance, or Firewall logs
+// Diagnostic settings still use the supported 2021-05-01-preview API.
+// ---------------------------------------------------------------------------
+resource appGwDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: '${prefix}-appgw-metrics'
+  scope: appGw
+  properties: {
+    workspaceId: law.id
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Action Group – email notification
 // ---------------------------------------------------------------------------
-resource actionGroup 'Microsoft.Insights/actionGroups@2023-09-01-preview' = {
+resource actionGroup 'Microsoft.Insights/actionGroups@2024-10-01-preview' = {
   name: '${prefix}-ag'
   location: 'global'
+  tags: tags
   properties: {
     groupShortName: 'SREDemo'
     enabled: true
@@ -192,17 +213,54 @@ resource actionGroup 'Microsoft.Insights/actionGroups@2023-09-01-preview' = {
 }
 
 // ---------------------------------------------------------------------------
-// Metric Alert – CPU > 80 % for 5 minutes
+// VM metric alerts – five-minute averages, evaluated every minute
+// Exact REST metric names:
+// https://learn.microsoft.com/azure/azure-monitor/reference/supported-metrics/microsoft-compute-virtualmachines-metrics
+// metricAlerts retains 2018-03-01: there is no newer stable API.
 // ---------------------------------------------------------------------------
-resource cpuAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
-  name: '${prefix}-high-cpu-alert'
+var vmMetricDefinitions = [
+  {
+    suffix: 'high-cpu'
+    metricName: 'Percentage CPU'
+    threshold: 80
+    description: 'CPU average exceeds 80% over 5 minutes.'
+  }
+  {
+    suffix: 'os-disk-iops'
+    metricName: 'OS Disk IOPS Consumed Percentage'
+    threshold: 90
+    description: 'OS disk IOPS consumed average exceeds 90% over 5 minutes; requires a premium-storage-capable VM series.'
+  }
+  {
+    suffix: 'os-disk-queue'
+    metricName: 'OS Disk Queue Depth'
+    threshold: 10
+    description: 'OS disk queue depth average exceeds 10 over 5 minutes. Static demo threshold, not a universal production baseline.'
+  }
+  {
+    suffix: 'cached-iops'
+    metricName: 'VM Cached IOPS Consumed Percentage'
+    threshold: 90
+    description: 'VM cached IOPS consumed average exceeds 90% over 5 minutes. Reference alert for premium-storage-capable VMs; with caching None there may be no datapoints and this is not the uncached disk bottleneck signal.'
+  }
+]
+
+var vmMetricAlerts = flatten(map(vmNames, (vmName, i) => map(vmMetricDefinitions, definition => {
+  vmName: vmName
+  vmId: vmIds[i]
+  definition: definition
+})))
+
+resource vmAlerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [for alert in vmMetricAlerts: {
+  name: '${prefix}-${alert.vmName}-${alert.definition.suffix}-alert'
   location: 'global'
+  tags: tags
   properties: {
-    description: 'Alert when VM CPU exceeds 80% for 5 minutes (Chaos Studio demo)'
+    description: alert.definition.description
     severity: 2
     enabled: true
     scopes: [
-      vmId
+      alert.vmId
     ]
     evaluationFrequency: 'PT1M'
     windowSize: 'PT5M'
@@ -210,11 +268,11 @@ resource cpuAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
       'odata.type': 'Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria'
       allOf: [
         {
-          name: 'HighCPU'
-          metricName: 'Percentage CPU'
+          name: alert.definition.suffix
+          metricName: alert.definition.metricName
           metricNamespace: 'Microsoft.Compute/virtualMachines'
           operator: 'GreaterThan'
-          threshold: 80
+          threshold: alert.definition.threshold
           timeAggregation: 'Average'
           criterionType: 'StaticThresholdCriterion'
         }
@@ -226,68 +284,47 @@ resource cpuAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
       }
     ]
   }
-}
+}]
 
 // ---------------------------------------------------------------------------
-// Metric Alert – Memory Pressure > 90 %
+// Guest memory alert – Perf, not an unsupported platform memory metric
+// Average Available Bytes < 200 MiB per VM over five minutes.
 // ---------------------------------------------------------------------------
-resource memoryAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
-  name: '${prefix}-high-memory-alert'
-  location: 'global'
-  properties: {
-    description: 'Alert when VM available memory is low (Chaos Studio demo)'
-    severity: 2
-    enabled: true
-    scopes: [
-      vmId
-    ]
-    evaluationFrequency: 'PT1M'
-    windowSize: 'PT5M'
-    criteria: {
-      'odata.type': 'Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria'
-      allOf: [
-        {
-          name: 'HighMemory'
-          metricName: 'Available Memory Bytes'
-          metricNamespace: 'Microsoft.Compute/virtualMachines'
-          operator: 'LessThan'
-          threshold: 209715200  // 200 MB
-          timeAggregation: 'Average'
-          criterionType: 'StaticThresholdCriterion'
-        }
-      ]
-    }
-    actions: [
-      {
-        actionGroupId: actionGroup.id
-      }
-    ]
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Log Alert – Nginx service stopped (Scheduled Query Rule)
-// Queries Syslog for systemd messages indicating nginx has been stopped.
-// ---------------------------------------------------------------------------
-resource nginxStopAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = {
-  name: '${prefix}-nginx-stop-alert'
+resource memoryAlert 'Microsoft.Insights/scheduledQueryRules@2025-01-01-preview' = {
+  name: '${prefix}-low-memory-alert'
   location: location
+  tags: tags
+  kind: 'LogAlert'
   properties: {
-    description: 'Alert when nginx service is stopped (detected via Syslog)'
-    severity: 1
+    description: 'Guest available memory averages below 200 MiB for 5 minutes (Windows Perf).'
+    severity: 2
     enabled: true
     evaluationFrequency: 'PT1M'
     windowSize: 'PT5M'
     scopes: [
       law.id
     ]
+    targetResourceTypes: [
+      'Microsoft.Compute/virtualMachines'
+    ]
     criteria: {
       allOf: [
         {
-          query: 'Syslog | where Facility == "daemon" and SyslogMessage has "nginx" and (SyslogMessage has "Stopped" or SyslogMessage has "stopping" or SyslogMessage has "deactivating" or SyslogMessage has "Deactivated")'
-          timeAggregation: 'Count'
-          operator: 'GreaterThanOrEqual'
-          threshold: 1
+          query: format('''
+Perf
+| where _ResourceId in~ (dynamic({0}))
+| where ObjectName == "Memory" and CounterName == "Available Bytes"
+| summarize AvailableBytes = avg(CounterValue) by _ResourceId, Computer
+''', string(vmIds))
+          timeAggregation: 'Average'
+          metricMeasureColumn: 'AvailableBytes'
+          resourceIdColumn: '_ResourceId'
+          operator: 'LessThan'
+          threshold: 209715200
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
         }
       ]
     }
@@ -298,9 +335,164 @@ resource nginxStopAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previ
     }
   }
   dependsOn: [
-    dcrAssociation
+    perfTable
+    dcrAssociations
   ]
 }
+
+// ---------------------------------------------------------------------------
+// IIS stop alert – SCM 7036 param1 is the service DISPLAY name, not always
+// W3SVC. Match param2=stopped, never running or unrelated service transitions.
+// The exact rendered-message alternative covers agents omitting XML EventData.
+// Service state/display-name values assume the lab's English Windows image.
+// ---------------------------------------------------------------------------
+resource iisStopAlert 'Microsoft.Insights/scheduledQueryRules@2025-01-01-preview' = {
+  name: '${prefix}-iis-stop-alert'
+  location: location
+  tags: tags
+  kind: 'LogAlert'
+  properties: {
+    description: 'IIS W3SVC entered the stopped state (System / Service Control Manager / event 7036).'
+    severity: 1
+    enabled: true
+    evaluationFrequency: 'PT1M'
+    windowSize: 'PT5M'
+    scopes: [
+      law.id
+    ]
+    targetResourceTypes: [
+      'Microsoft.Compute/virtualMachines'
+    ]
+    criteria: {
+      allOf: [
+        {
+          query: format('''
+Event
+| where _ResourceId in~ (dynamic({0}))
+| where EventLog == "System" and Source == "Service Control Manager" and EventID == 7036
+| extend ServiceName = extract(@'<Data\s+Name="param1"\s*>([^<]+)</Data>', 1, EventData),
+         ServiceState = extract(@'<Data\s+Name="param2"\s*>([^<]+)</Data>', 1, EventData)
+| where (ServiceName in~ ("W3SVC", "World Wide Web Publishing Service") and ServiceState =~ "stopped")
+    or (isempty(ServiceName) and RenderedDescription matches regex @"^The (World Wide Web Publishing Service|W3SVC) service entered the stopped state\.\s*$")
+| project TimeGenerated, _ResourceId, Computer, RenderedDescription
+''', string(vmIds))
+          timeAggregation: 'Count'
+          resourceIdColumn: '_ResourceId'
+          operator: 'GreaterThanOrEqual'
+          threshold: 1
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [
+        actionGroup.id
+      ]
+    }
+  }
+  dependsOn: [
+    eventTable
+    dcrAssociations
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// Application Gateway metric alerts – exact REST names and dimensions:
+// https://learn.microsoft.com/azure/azure-monitor/reference/supported-metrics/microsoft-network-applicationgateways-metrics
+// Both response metrics use HttpStatusGroup (not BackendHttpStatusGroup).
+// ---------------------------------------------------------------------------
+var appGwMetricDefinitions = [
+  {
+    suffix: 'unhealthy-host'
+    metricName: 'UnhealthyHostCount'
+    description: 'At least one unhealthy Application Gateway backend host on average over 5 minutes.'
+    operator: 'GreaterThanOrEqual'
+    threshold: 1
+    aggregation: 'Average'
+    dimensions: [
+      {
+        name: 'BackendSettingsPool'
+        operator: 'Include'
+        values: [
+          '*'
+        ]
+      }
+    ]
+  }
+  {
+    suffix: 'frontend-5xx'
+    metricName: 'ResponseStatus'
+    description: 'Application Gateway returned at least one 5xx response in 5 minutes (Sum).'
+    operator: 'GreaterThan'
+    threshold: 0
+    aggregation: 'Total'
+    dimensions: [
+      {
+        name: 'HttpStatusGroup'
+        operator: 'Include'
+        values: [
+          '5xx'
+        ]
+      }
+    ]
+  }
+  {
+    suffix: 'backend-5xx'
+    metricName: 'BackendResponseStatus'
+    description: 'Backend members returned at least one 5xx response in 5 minutes (Sum); excludes gateway-generated errors.'
+    operator: 'GreaterThan'
+    threshold: 0
+    aggregation: 'Total'
+    dimensions: [
+      {
+        name: 'HttpStatusGroup'
+        operator: 'Include'
+        values: [
+          '5xx'
+        ]
+      }
+    ]
+  }
+]
+
+resource appGwAlerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [for definition in appGwMetricDefinitions: {
+  name: '${prefix}-appgw-${definition.suffix}-alert'
+  location: 'global'
+  tags: tags
+  properties: {
+    description: definition.description
+    severity: 1
+    enabled: true
+    scopes: [
+      appGw.id
+    ]
+    evaluationFrequency: 'PT1M'
+    windowSize: 'PT5M'
+    criteria: {
+      'odata.type': 'Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria'
+      allOf: [
+        {
+          name: definition.suffix
+          metricName: definition.metricName
+          metricNamespace: 'Microsoft.Network/applicationGateways'
+          operator: definition.operator
+          threshold: definition.threshold
+          timeAggregation: definition.aggregation
+          dimensions: definition.dimensions
+          criterionType: 'StaticThresholdCriterion'
+        }
+      ]
+    }
+    actions: [
+      {
+        actionGroupId: actionGroup.id
+      }
+    ]
+  }
+}]
 
 // ---------------------------------------------------------------------------
 // Outputs
@@ -308,5 +500,3 @@ resource nginxStopAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-previ
 output lawId string = law.id
 output lawName string = law.name
 output actionGroupId string = actionGroup.id
-output cpuAlertId string = cpuAlert.id
-output nginxStopAlertId string = nginxStopAlert.id
