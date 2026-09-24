@@ -33,10 +33,19 @@ class TemplateTests(unittest.TestCase):
     def module(self, name):
         return self.main["resources"][name]["properties"]["template"]
 
+    def test_deploy_to_azure_template_is_current(self):
+        committed = json.loads((ROOT / "azuredeploy.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            committed,
+            self.main,
+            "azuredeploy.json is stale; run: az bicep build --file main.bicep --outfile azuredeploy.json",
+        )
+
     def test_password_and_defaults(self):
         p = self.main["parameters"]
         self.assertEqual(p["adminPassword"]["type"].lower(), "securestring")
         self.assertNotIn("defaultValue", p["adminPassword"])
+        self.assertEqual((p["adminPassword"]["minLength"], p["adminPassword"]["maxLength"]), (12, 123))
         self.assertNotIn("sshPublicKey", p)
         self.assertEqual(p["vmCount"]["defaultValue"], 2)
         self.assertEqual(p["location"]["defaultValue"], "eastus2")

@@ -7,7 +7,9 @@
 targetScope = 'resourceGroup'
 
 // East US 2 supports App Gateway v2 and Chaos Studio; verify subscription quota before deployment.
+@description('Azure region for all regional resources. Verify SRE Agent availability, VM quota, and SKU availability before deployment.')
 param location string = 'eastus2'
+@description('Resource name prefix: 1-9 characters, starts with a letter, contains only letters, digits, or hyphens, and ends with a letter or digit.')
 @minLength(1)
 @maxLength(9)
 param prefix string = 'srelab'
@@ -15,8 +17,14 @@ param tags object = {
   project: 'sreagentlab'
   env: 'demo'
 }
+@description('Windows administrator username: 1-20 letters, digits, underscores, or hyphens; starts with a letter and must not be a reserved name such as administrator or admin.')
+@minLength(1)
+@maxLength(20)
 param adminUsername string = 'azureuser'
+@description('Windows administrator password: 12-123 characters, at least three character classes, and must not contain the username.')
 @secure()
+@minLength(12)
+@maxLength(123)
 param adminPassword string
 @minValue(1)
 @maxValue(99)
@@ -25,12 +33,18 @@ param vmSize string = 'Standard_D2s_v5'
 param enableRdpPublicIp bool = false
 @description('Explicit restricted IPv4 CIDR when RDP is enabled; never use /0 or a wildcard')
 param allowedRdpSource string = '127.0.0.1/32'
+@description('Email address that receives Azure Monitor alert notifications.')
+@minLength(3)
 param alertEmail string
+@description('Azure SRE Agent resource name.')
 param sreAgentName string = '${prefix}-agent'
 @allowed(['High', 'Low'])
 param sreAgentAccessLevel string = 'High'
 @allowed(['Review', 'Autonomous', 'ReadOnly'])
 param sreAgentMode string = 'Review'
+@description('Microsoft Entra object ID of the user who will administer this SRE Agent. Find it in Microsoft Entra ID > Users > your user > Object ID.')
+@minLength(36)
+@maxLength(36)
 param deployerPrincipalId string
 
 var names = [for i in range(0, vmCount): '${prefix}-vm-${padLeft(string(i + 1), 2, '0')}']

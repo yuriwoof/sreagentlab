@@ -42,9 +42,10 @@ NSG SecurityRule 1.0 は既存フローを切断しないため、症状の発�
 
 ## 前提条件とパラメータ
 
-- Bash、Azure CLI（`az`）、Bicep CLI、`python3` とデプロイ用の `mktemp` を用意します。Windows では Git Bash または WSL を使用します。
+- **Deploy to Azure** を使う場合、必要なのは Web ブラウザーと Azure portal へのサインインだけです。
+- ローカルスクリプトを使う場合は、Bash、Azure CLI（`az`）、Bicep CLI、`python3` とデプロイ用の `mktemp` を用意します。Windows では Git Bash または WSL を使用します。
 - `jq` は補助的な JSON 確認用に利用できます。現在の運用スクリプトの JSON 解析は `python3` を使用します。
-- `az login` 後、対象サブスクリプションを確認します。
+- ローカルスクリプトでは `az login` 後、対象サブスクリプションを確認します。
 - デプロイ対象 RG にリソース作成権限とロール割り当て権限が必要です。RG の作成やプロバイダー登録は管理者と調整します。
 - Azure SRE Agent の利用可否、リージョン、VM クォータを事前に確認します。
 
@@ -55,12 +56,28 @@ NSG SecurityRule 1.0 は既存フローを切断しないため、症状の発�
 | `vmSize` | `Standard_D2s_v5`。変更時はディスク指標の対応を確認 |
 | `adminUsername` / `adminPassword` | 管理者名を設定。パスワードはパラメータファイルに保存しない |
 | `alertEmail` | 実際の通知先に変更 |
-| `deployerPrincipalId` | `az ad signed-in-user show --query id -o tsv` で取得 |
+| `deployerPrincipalId` | Microsoft Entra ID のユーザー画面にある **オブジェクト ID**。CLI では `az ad signed-in-user show --query id -o tsv` で取得 |
 | `enableRdpPublicIp` / `allowedRdpSource` | `false` / `127.0.0.1/32`。RDP 有効化時は接続元の狭い CIDR を明示 |
 | `tags` | `project=sreagentlab`、`env=demo`。タグ対応リソースへ適用 |
 | `sreAgentAccessLevel` / `sreAgentMode` | `High` / `Review`。読み取り専用デモは `Low` / `ReadOnly` を検討 |
 
 ## クイックスタート
+
+### Azure portal からデプロイ
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fyuriwoof%2Fsreagentlab%2Fmain%2Fazuredeploy.json)
+
+ボタンを選び、サブスクリプションとリソース グループを指定して、少なくとも次の値を入力します。Bicep、Azure CLI、Bash は不要です。
+
+- **Admin Password**: 12～123 文字で 3 種類以上の文字種を含み、管理者名を含まない Windows 管理者パスワード
+- **Alert Email**: Azure Monitor アラートの通知先
+- **Deployer Principal Id**: Microsoft Entra ID → **ユーザー** → 自分のユーザーに表示される **オブジェクト ID**
+
+RDP を有効にする場合は、**Allowed Rdp Source** を自分の接続元だけに限定した IPv4 CIDR に変更します。`/0`、ワイルドカード、ループバックは使用しません。
+デプロイには、対象リソースを作成する権限に加えてロール割り当て権限が必要です。プロバイダー登録やリソース グループ作成が許可されていない場合は管理者へ依頼してください。
+このボタンは、公開 GitHub リポジトリの [`azuredeploy.json`](azuredeploy.json) を Azure portal が取得してデプロイします。
+
+### ローカルスクリプトからデプロイ
 
 以下はリポジトリのルートから Bash で実行する手順です。
 `main.parameters.json` をローカル用にコピーし、通知先と利用者 ID などを編集します。
@@ -107,7 +124,7 @@ bash scripts/run-chaos.sh stop cpu
 ## ファイル構成
 
 ```text
-main.bicep / main.parameters.json
+main.bicep / azuredeploy.json / main.parameters.json
 modules/
   network.bicep / vm.bicep / appgw.bicep
   monitoring.bicep / chaos.bicep / sre-agent.bicep

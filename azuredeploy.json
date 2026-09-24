@@ -1,0 +1,2439 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.46.1.21595",
+      "templateHash": "17207374872663429730"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus2",
+      "metadata": {
+        "description": "Azure region for all regional resources. Verify SRE Agent availability, VM quota, and SKU availability before deployment."
+      }
+    },
+    "prefix": {
+      "type": "string",
+      "defaultValue": "srelab",
+      "minLength": 1,
+      "maxLength": 9,
+      "metadata": {
+        "description": "Resource name prefix: 1-9 characters, starts with a letter, contains only letters, digits, or hyphens, and ends with a letter or digit."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "project": "sreagentlab",
+        "env": "demo"
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "azureuser",
+      "minLength": 1,
+      "maxLength": 20,
+      "metadata": {
+        "description": "Windows administrator username: 1-20 letters, digits, underscores, or hyphens; starts with a letter and must not be a reserved name such as administrator or admin."
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "minLength": 12,
+      "maxLength": 123,
+      "metadata": {
+        "description": "Windows administrator password: 12-123 characters, at least three character classes, and must not contain the username."
+      }
+    },
+    "vmCount": {
+      "type": "int",
+      "defaultValue": 2,
+      "minValue": 1,
+      "maxValue": 99
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_D2s_v5"
+    },
+    "enableRdpPublicIp": {
+      "type": "bool",
+      "defaultValue": false
+    },
+    "allowedRdpSource": {
+      "type": "string",
+      "defaultValue": "127.0.0.1/32",
+      "metadata": {
+        "description": "Explicit restricted IPv4 CIDR when RDP is enabled; never use /0 or a wildcard"
+      }
+    },
+    "alertEmail": {
+      "type": "string",
+      "minLength": 3,
+      "metadata": {
+        "description": "Email address that receives Azure Monitor alert notifications."
+      }
+    },
+    "sreAgentName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-agent', parameters('prefix'))]",
+      "metadata": {
+        "description": "Azure SRE Agent resource name."
+      }
+    },
+    "sreAgentAccessLevel": {
+      "type": "string",
+      "defaultValue": "High",
+      "allowedValues": [
+        "High",
+        "Low"
+      ]
+    },
+    "sreAgentMode": {
+      "type": "string",
+      "defaultValue": "Review",
+      "allowedValues": [
+        "Review",
+        "Autonomous",
+        "ReadOnly"
+      ]
+    },
+    "deployerPrincipalId": {
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
+      "metadata": {
+        "description": "Microsoft Entra object ID of the user who will administer this SRE Agent. Find it in Microsoft Entra ID > Users > your user > Object ID."
+      }
+    }
+  },
+  "variables": {
+    "copy": [
+      {
+        "name": "names",
+        "count": "[length(range(0, parameters('vmCount')))]",
+        "input": "[format('{0}-vm-{1}', parameters('prefix'), padLeft(string(add(range(0, parameters('vmCount'))[copyIndex('names')], 1)), 2, '0'))]"
+      },
+      {
+        "name": "cpuBindings",
+        "count": "[length(range(0, parameters('vmCount')))]",
+        "input": {
+          "experiment": 0,
+          "vm": "[range(0, parameters('vmCount'))[copyIndex('cpuBindings')]]"
+        }
+      },
+      {
+        "name": "memoryBindings",
+        "count": "[length(range(0, parameters('vmCount')))]",
+        "input": {
+          "experiment": 1,
+          "vm": "[range(0, parameters('vmCount'))[copyIndex('memoryBindings')]]"
+        }
+      }
+    ],
+    "readerRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')]",
+    "readerBindings": "[concat(variables('cpuBindings'), variables('memoryBindings'), createArray(createObject('experiment', 2, 'vm', 0), createObject('experiment', 3, 'vm', 0)))]"
+  },
+  "resources": {
+    "targetVms": {
+      "copy": {
+        "name": "targetVms",
+        "count": "[length(variables('names'))]"
+      },
+      "existing": true,
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2024-07-01",
+      "name": "[variables('names')[copyIndex()]]"
+    },
+    "chaosAgentReaderRoles": {
+      "copy": {
+        "name": "chaosAgentReaderRoles",
+        "count": "[length(range(0, parameters('vmCount')))]"
+      },
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Compute/virtualMachines', variables('names')[range(0, parameters('vmCount'))[copyIndex()]])]",
+      "name": "[guid(resourceId('Microsoft.Compute/virtualMachines', variables('names')[range(0, parameters('vmCount'))[copyIndex()]]), format('{0}-chaos-identity', parameters('prefix')), variables('readerRoleId'))]",
+      "properties": {
+        "principalId": "[reference('vm').outputs.chaosIdentityPrincipalId.value]",
+        "roleDefinitionId": "[variables('readerRoleId')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "vm"
+      ]
+    },
+    "experimentReaderRoles": {
+      "copy": {
+        "name": "experimentReaderRoles",
+        "count": "[length(variables('readerBindings'))]"
+      },
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Compute/virtualMachines', variables('names')[variables('readerBindings')[copyIndex()].vm])]",
+      "name": "[guid(resourceId('Microsoft.Compute/virtualMachines', variables('names')[variables('readerBindings')[copyIndex()].vm]), parameters('prefix'), string(variables('readerBindings')[copyIndex()].experiment), variables('readerRoleId'))]",
+      "properties": {
+        "principalId": "[reference('chaos').outputs.experimentPrincipalIds.value[variables('readerBindings')[copyIndex()].experiment]]",
+        "roleDefinitionId": "[variables('readerRoleId')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "chaos"
+      ]
+    },
+    "targetNsg": {
+      "existing": true,
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}-nsg', parameters('prefix'))]"
+    },
+    "nsgExperimentRole": {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('prefix')))]",
+      "name": "[guid(resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('prefix'))), parameters('prefix'), 'nsg-experiment', 'NetworkContributor')]",
+      "properties": {
+        "principalId": "[reference('chaos').outputs.nsgExperimentPrincipalId.value]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4d97b98b-1d4f-4787-a291-c67834d212e7')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "chaos"
+      ]
+    },
+    "sreAgentAdminRole": {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, parameters('deployerPrincipalId'), 'e79298df-d852-4c6d-84f9-5d13249d1e55')]",
+      "properties": {
+        "principalId": "[parameters('deployerPrincipalId')]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'e79298df-d852-4c6d-84f9-5d13249d1e55')]",
+        "principalType": "User"
+      },
+      "dependsOn": [
+        "sreAgent"
+      ]
+    },
+    "deployerContributorRole": {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, parameters('deployerPrincipalId'), 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+      "properties": {
+        "principalId": "[parameters('deployerPrincipalId')]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+        "principalType": "User"
+      },
+      "dependsOn": [
+        "sreAgent"
+      ]
+    },
+    "network": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-network",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "prefix": {
+            "value": "[parameters('prefix')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "enableRdpPublicIp": {
+            "value": "[parameters('enableRdpPublicIp')]"
+          },
+          "allowedRdpSource": {
+            "value": "[parameters('allowedRdpSource')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "16179531984711685203"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for deployment"
+              }
+            },
+            "prefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource name prefix"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to all supported resources"
+              }
+            },
+            "enableRdpPublicIp": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Enable public IPs and restricted inbound RDP for the VMs"
+              }
+            },
+            "allowedRdpSource": {
+              "type": "string",
+              "defaultValue": "127.0.0.1/32",
+              "minLength": 9,
+              "maxLength": 18,
+              "metadata": {
+                "description": "Restricted IPv4 CIDR for optional RDP; deploy.sh rejects wildcard and /0 input"
+              }
+            }
+          },
+          "variables": {
+            "vmSubnetAddressPrefix": "10.0.1.0/24",
+            "appGwSubnetAddressPrefix": "10.0.2.0/24"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-nsg', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "securityRules": "[concat(createArray(createObject('name', 'AllowHTTPFromApplicationGateway', 'properties', createObject('priority', 200, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourcePortRange', '*', 'destinationPortRange', '80', 'sourceAddressPrefix', variables('appGwSubnetAddressPrefix'), 'destinationAddressPrefix', variables('vmSubnetAddressPrefix'))), createObject('name', 'DenyOtherHTTP', 'properties', createObject('priority', 210, 'direction', 'Inbound', 'access', 'Deny', 'protocol', 'Tcp', 'sourcePortRange', '*', 'destinationPortRange', '80', 'sourceAddressPrefix', '*', 'destinationAddressPrefix', '*')), createObject('name', 'DenyOtherRDP', 'properties', createObject('priority', 310, 'direction', 'Inbound', 'access', 'Deny', 'protocol', 'Tcp', 'sourcePortRange', '*', 'destinationPortRange', '3389', 'sourceAddressPrefix', '*', 'destinationAddressPrefix', '*'))), if(parameters('enableRdpPublicIp'), createArray(createObject('name', 'AllowRestrictedRDP', 'properties', createObject('priority', 300, 'direction', 'Inbound', 'access', 'Allow', 'protocol', 'Tcp', 'sourcePortRange', '*', 'destinationPortRange', '3389', 'sourceAddressPrefix', parameters('allowedRdpSource'), 'destinationAddressPrefix', variables('vmSubnetAddressPrefix')))), createArray()))]"
+              }
+            },
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-appgw-nsg', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "securityRules": [
+                  {
+                    "name": "AllowInternetHTTPHTTPS",
+                    "properties": {
+                      "priority": 200,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "Tcp",
+                      "sourcePortRange": "*",
+                      "destinationPortRanges": [
+                        "80",
+                        "443"
+                      ],
+                      "sourceAddressPrefix": "Internet",
+                      "destinationAddressPrefix": "*"
+                    }
+                  },
+                  {
+                    "name": "AllowGatewayManager",
+                    "properties": {
+                      "priority": 210,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "Tcp",
+                      "sourcePortRange": "*",
+                      "destinationPortRange": "65200-65535",
+                      "sourceAddressPrefix": "GatewayManager",
+                      "destinationAddressPrefix": "*"
+                    }
+                  },
+                  {
+                    "name": "AllowAzureLoadBalancer",
+                    "properties": {
+                      "priority": 220,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "*",
+                      "sourcePortRange": "*",
+                      "destinationPortRange": "*",
+                      "sourceAddressPrefix": "AzureLoadBalancer",
+                      "destinationAddressPrefix": "*"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-nat-pip', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static",
+                "publicIPAddressVersion": "IPv4"
+              }
+            },
+            {
+              "type": "Microsoft.Network/natGateways",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-nat', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard"
+              },
+              "properties": {
+                "idleTimeoutInMinutes": 4,
+                "publicIpAddresses": [
+                  {
+                    "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-nat-pip', parameters('prefix')))]"
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-nat-pip', parameters('prefix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-vnet', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "10.0.0.0/16"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "[format('{0}-snet-vm', parameters('prefix'))]",
+                    "properties": {
+                      "addressPrefix": "[variables('vmSubnetAddressPrefix')]",
+                      "defaultOutboundAccess": false,
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('prefix')))]"
+                      },
+                      "natGateway": {
+                        "id": "[resourceId('Microsoft.Network/natGateways', format('{0}-nat', parameters('prefix')))]"
+                      }
+                    }
+                  },
+                  {
+                    "name": "[format('{0}-snet-appgw', parameters('prefix'))]",
+                    "properties": {
+                      "addressPrefix": "[variables('appGwSubnetAddressPrefix')]",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-appgw-nsg', parameters('prefix')))]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-appgw-nsg', parameters('prefix')))]",
+                "[resourceId('Microsoft.Network/natGateways', format('{0}-nat', parameters('prefix')))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('prefix')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "subnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('prefix'))), '2024-05-01').subnets[0].id]"
+            },
+            "appGwSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('prefix'))), '2024-05-01').subnets[1].id]"
+            },
+            "appGwSubnetPrefix": {
+              "type": "string",
+              "value": "[variables('appGwSubnetAddressPrefix')]"
+            },
+            "vmSubnetPrefix": {
+              "type": "string",
+              "value": "[variables('vmSubnetAddressPrefix')]"
+            },
+            "nsgId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('prefix')))]"
+            },
+            "nsgName": {
+              "type": "string",
+              "value": "[format('{0}-nsg', parameters('prefix'))]"
+            },
+            "vnetId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('prefix')))]"
+            }
+          }
+        }
+      }
+    },
+    "vm": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-vm",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "prefix": {
+            "value": "[parameters('prefix')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "subnetId": {
+            "value": "[reference('network').outputs.subnetId.value]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "vmCount": {
+            "value": "[parameters('vmCount')]"
+          },
+          "enableRdpPublicIp": {
+            "value": "[parameters('enableRdpPublicIp')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "languageVersion": "2.0",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "2059242673461323473"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for deployment"
+              }
+            },
+            "prefix": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 9,
+              "metadata": {
+                "description": "Resource name prefix; prefix-vm-01 must fit the Windows 15-character computer name limit"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to all supported resources"
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "VM subnet resource ID"
+              }
+            },
+            "adminUsername": {
+              "type": "string",
+              "metadata": {
+                "description": "VM administrator username"
+              }
+            },
+            "adminPassword": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Windows administrator password"
+              }
+            },
+            "vmSize": {
+              "type": "string",
+              "defaultValue": "Standard_D2s_v5",
+              "metadata": {
+                "description": "VM size supporting the disk metrics used by this lab"
+              }
+            },
+            "vmCount": {
+              "type": "int",
+              "defaultValue": 2,
+              "minValue": 1,
+              "maxValue": 99,
+              "metadata": {
+                "description": "Number of IIS VMs"
+              }
+            },
+            "enableRdpPublicIp": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Attach optional public IPs for RDP; also enable the restricted rule in the network module"
+              }
+            }
+          },
+          "variables": {
+            "copy": [
+              {
+                "name": "names",
+                "count": "[length(range(0, parameters('vmCount')))]",
+                "input": "[format('{0}-vm-{1}', parameters('prefix'), padLeft(string(add(range(0, parameters('vmCount'))[copyIndex('names')], 1)), 2, '0'))]"
+              }
+            ],
+            "$fxv#0": "# =============================================================================\n# Script: setup-iis.ps1\n# Description: Configure a cache-free IIS hostname page and health endpoint.\n# =============================================================================\n\n$ErrorActionPreference = 'Stop'\nSet-StrictMode -Version Latest\n\n$installation = Install-WindowsFeature -Name Web-Server -IncludeManagementTools\nif (-not $installation.Success) {\n    throw 'IIS installation failed.'\n}\nif ($installation.RestartNeeded -eq 'Yes') {\n    throw 'IIS installation requires a restart; rerun setup after restarting.'\n}\n\n$webRoot = 'C:\\inetpub\\wwwroot'\nNew-Item -ItemType Directory -Path $webRoot -Force | Out-Null\nNew-Item -ItemType Directory -Path 'C:\\ChaosTemp' -Force | Out-Null\n\n$hostname = $env:COMPUTERNAME\n$sha256 = [System.Security.Cryptography.SHA256]::Create()\ntry {\n    $hash = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($hostname))\n}\nfinally {\n    $sha256.Dispose()\n}\n$background = '#{0:x2}{1:x2}{2:x2}' -f (32 + ($hash[0] % 96)), (32 + ($hash[1] % 96)), (32 + ($hash[2] % 96))\n$safeHostname = [System.Net.WebUtility]::HtmlEncode($hostname)\n$page = @\"\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <meta http-equiv=\"Cache-Control\" content=\"no-store, no-cache, must-revalidate\">\n  <meta http-equiv=\"Pragma\" content=\"no-cache\">\n  <meta http-equiv=\"Expires\" content=\"0\">\n  <title>IIS - $safeHostname</title>\n  <style>body { background: $background; color: white; font-family: sans-serif; text-align: center; padding-top: 15vh; } h1 { font-size: 4rem; }</style>\n</head>\n<body><h1>$safeHostname</h1><p>Windows Server 2022 - IIS</p></body>\n</html>\n\"@\n$webConfig = @'\n<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<configuration>\n  <system.webServer>\n    <defaultDocument enabled=\"true\">\n      <files><clear /><add value=\"Default.htm\" /></files>\n    </defaultDocument>\n    <staticContent><clientCache cacheControlMode=\"NoControl\" /></staticContent>\n    <httpProtocol>\n      <customHeaders>\n        <remove name=\"Cache-Control\" />\n        <remove name=\"Pragma\" />\n        <remove name=\"Expires\" />\n        <add name=\"Cache-Control\" value=\"no-store, no-cache, must-revalidate\" />\n        <add name=\"Pragma\" value=\"no-cache\" />\n        <add name=\"Expires\" value=\"0\" />\n      </customHeaders>\n    </httpProtocol>\n  </system.webServer>\n</configuration>\n'@\n$utf8 = [System.Text.UTF8Encoding]::new($false)\n[System.IO.File]::WriteAllText((Join-Path $webRoot 'Default.htm'), $page, $utf8)\n[System.IO.File]::WriteAllText((Join-Path $webRoot 'health.htm'), 'OK', $utf8)\n[System.IO.File]::WriteAllText((Join-Path $webRoot 'web.config'), $webConfig, $utf8)\n\n$firewallRule = Get-NetFirewallRule -Name 'ChaosLab-HTTP' -ErrorAction SilentlyContinue\nif ($firewallRule) {\n    Remove-NetFirewallRule -Name 'ChaosLab-HTTP'\n}\nNew-NetFirewallRule -Name 'ChaosLab-HTTP' -DisplayName 'Chaos Lab IIS HTTP' `\n    -Direction Inbound -Action Allow -Protocol TCP -LocalPort 80 -Profile Any | Out-Null\n\nSet-Service -Name W3SVC -StartupType Automatic\nStart-Service -Name W3SVC\nif ((Get-Service -Name W3SVC).Status -ne 'Running') {\n    throw 'IIS W3SVC did not start.'\n}\n\n$health = Invoke-WebRequest -Uri 'http://localhost/health.htm' -UseBasicParsing -TimeoutSec 30\nif ($health.StatusCode -ne 200 -or $health.Content.Trim() -ne 'OK') {\n    throw 'IIS health endpoint did not return HTTP 200 with OK.'\n}\n",
+            "setupScriptBase64": "[base64(variables('$fxv#0'))]",
+            "setupCommand": "[format('powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"& ([scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(''{0}''))))\"', variables('setupScriptBase64'))]"
+          },
+          "resources": {
+            "chaosIdentity": {
+              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "apiVersion": "2024-11-30",
+              "name": "[format('{0}-chaos-identity', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]"
+            },
+            "rdpPublicIps": {
+              "copy": {
+                "name": "rdpPublicIps",
+                "count": "[length(range(0, parameters('vmCount')))]"
+              },
+              "condition": "[parameters('enableRdpPublicIp')]",
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-rdp-pip', variables('names')[range(0, parameters('vmCount'))[copyIndex()]])]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static",
+                "publicIPAddressVersion": "IPv4"
+              }
+            },
+            "nics": {
+              "copy": {
+                "name": "nics",
+                "count": "[length(range(0, parameters('vmCount')))]"
+              },
+              "type": "Microsoft.Network/networkInterfaces",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-nic', variables('names')[range(0, parameters('vmCount'))[copyIndex()]])]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "ipConfigurations": [
+                  {
+                    "name": "ipconfig1",
+                    "properties": {
+                      "privateIPAllocationMethod": "Dynamic",
+                      "subnet": {
+                        "id": "[parameters('subnetId')]"
+                      },
+                      "publicIPAddress": "[if(parameters('enableRdpPublicIp'), createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('{0}-rdp-pip', variables('names')[range(0, parameters('vmCount'))[range(0, parameters('vmCount'))[copyIndex()]]]))), null())]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[format('rdpPublicIps[{0}]', range(0, parameters('vmCount'))[copyIndex()])]"
+              ]
+            },
+            "vms": {
+              "copy": {
+                "name": "vms",
+                "count": "[length(range(0, parameters('vmCount')))]"
+              },
+              "type": "Microsoft.Compute/virtualMachines",
+              "apiVersion": "2024-07-01",
+              "name": "[variables('names')[range(0, parameters('vmCount'))[copyIndex()]]]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "SystemAssigned, UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-chaos-identity', parameters('prefix'))))]": {}
+                }
+              },
+              "properties": {
+                "hardwareProfile": {
+                  "vmSize": "[parameters('vmSize')]"
+                },
+                "osProfile": {
+                  "computerName": "[variables('names')[range(0, parameters('vmCount'))[copyIndex()]]]",
+                  "adminUsername": "[parameters('adminUsername')]",
+                  "adminPassword": "[parameters('adminPassword')]",
+                  "windowsConfiguration": {
+                    "provisionVMAgent": true,
+                    "enableAutomaticUpdates": false
+                  }
+                },
+                "storageProfile": {
+                  "imageReference": {
+                    "publisher": "MicrosoftWindowsServer",
+                    "offer": "WindowsServer",
+                    "sku": "2022-datacenter-azure-edition",
+                    "version": "latest"
+                  },
+                  "osDisk": {
+                    "name": "[format('{0}-osdisk', variables('names')[range(0, parameters('vmCount'))[copyIndex()]])]",
+                    "createOption": "FromImage",
+                    "diskSizeGB": 127,
+                    "caching": "None",
+                    "managedDisk": {
+                      "storageAccountType": "Standard_LRS"
+                    }
+                  }
+                },
+                "networkProfile": {
+                  "networkInterfaces": [
+                    {
+                      "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('names')[range(0, parameters('vmCount'))[range(0, parameters('vmCount'))[copyIndex()]]]))]"
+                    }
+                  ]
+                },
+                "diagnosticsProfile": {
+                  "bootDiagnostics": {
+                    "enabled": true
+                  }
+                }
+              },
+              "dependsOn": [
+                "chaosIdentity",
+                "[format('nics[{0}]', range(0, parameters('vmCount'))[copyIndex()])]"
+              ]
+            },
+            "osDisks": {
+              "copy": {
+                "name": "osDisks",
+                "count": "[length(variables('names'))]"
+              },
+              "existing": true,
+              "type": "Microsoft.Compute/disks",
+              "apiVersion": "2024-03-02",
+              "name": "[format('{0}-osdisk', variables('names')[copyIndex()])]"
+            },
+            "osDiskTags": {
+              "copy": {
+                "name": "osDiskTags",
+                "count": "[length(range(0, parameters('vmCount')))]"
+              },
+              "type": "Microsoft.Resources/tags",
+              "apiVersion": "2021-04-01",
+              "scope": "[resourceId('Microsoft.Compute/disks', format('{0}-osdisk', variables('names')[range(0, parameters('vmCount'))[copyIndex()]]))]",
+              "name": "default",
+              "properties": {
+                "tags": "[parameters('tags')]"
+              },
+              "dependsOn": [
+                "[format('vms[{0}]', range(0, parameters('vmCount'))[copyIndex()])]"
+              ]
+            },
+            "iisExtensions": {
+              "copy": {
+                "name": "iisExtensions",
+                "count": "[length(range(0, parameters('vmCount')))]"
+              },
+              "type": "Microsoft.Compute/virtualMachines/extensions",
+              "apiVersion": "2024-07-01",
+              "name": "[format('{0}/{1}', variables('names')[range(0, parameters('vmCount'))[range(0, parameters('vmCount'))[copyIndex()]]], 'install-iis')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "publisher": "Microsoft.Compute",
+                "type": "CustomScriptExtension",
+                "typeHandlerVersion": "1.10",
+                "autoUpgradeMinorVersion": true,
+                "protectedSettings": {
+                  "commandToExecute": "[variables('setupCommand')]"
+                }
+              },
+              "dependsOn": [
+                "[format('vms[{0}]', range(0, parameters('vmCount'))[copyIndex()])]"
+              ]
+            }
+          },
+          "outputs": {
+            "vmIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "copy": {
+                "count": "[length(range(0, parameters('vmCount')))]",
+                "input": "[resourceId('Microsoft.Compute/virtualMachines', variables('names')[range(0, parameters('vmCount'))[range(0, parameters('vmCount'))[copyIndex()]]])]"
+              }
+            },
+            "vmNames": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "value": "[variables('names')]"
+            },
+            "privateIpAddresses": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "copy": {
+                "count": "[length(range(0, parameters('vmCount')))]",
+                "input": "[reference(format('nics[{0}]', range(0, parameters('vmCount'))[copyIndex()])).ipConfigurations[0].properties.privateIPAddress]"
+              }
+            },
+            "chaosIdentityId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-chaos-identity', parameters('prefix')))]"
+            },
+            "chaosIdentityPrincipalId": {
+              "type": "string",
+              "value": "[reference('chaosIdentity').principalId]"
+            },
+            "chaosIdentityClientId": {
+              "type": "string",
+              "value": "[reference('chaosIdentity').clientId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "network"
+      ]
+    },
+    "appGw": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-appgw",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "prefix": {
+            "value": "[parameters('prefix')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "subnetId": {
+            "value": "[reference('network').outputs.appGwSubnetId.value]"
+          },
+          "backendIpAddresses": {
+            "value": "[reference('vm').outputs.privateIpAddresses.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "languageVersion": "2.0",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "2240761332282444178"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for deployment"
+              }
+            },
+            "prefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource name prefix"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to all supported resources"
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Dedicated Application Gateway subnet resource ID"
+              }
+            },
+            "backendIpAddresses": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minLength": 1,
+              "metadata": {
+                "description": "Private IP addresses of the IIS backend VMs"
+              }
+            }
+          },
+          "variables": {
+            "gatewayName": "[format('{0}-appgw', parameters('prefix'))]",
+            "gatewayId": "[resourceId('Microsoft.Network/applicationGateways', variables('gatewayName'))]",
+            "healthProbeName": "iis-health"
+          },
+          "resources": {
+            "publicIp": {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-appgw-pip', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static",
+                "publicIPAddressVersion": "IPv4"
+              }
+            },
+            "appGw": {
+              "type": "Microsoft.Network/applicationGateways",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('gatewayName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "sku": {
+                  "name": "Standard_v2",
+                  "tier": "Standard_v2",
+                  "capacity": 1
+                },
+                "gatewayIPConfigurations": [
+                  {
+                    "name": "gateway-ip",
+                    "properties": {
+                      "subnet": {
+                        "id": "[parameters('subnetId')]"
+                      }
+                    }
+                  }
+                ],
+                "frontendIPConfigurations": [
+                  {
+                    "name": "public-frontend",
+                    "properties": {
+                      "publicIPAddress": {
+                        "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-appgw-pip', parameters('prefix')))]"
+                      }
+                    }
+                  }
+                ],
+                "frontendPorts": [
+                  {
+                    "name": "http",
+                    "properties": {
+                      "port": 80
+                    }
+                  }
+                ],
+                "backendAddressPools": [
+                  {
+                    "name": "iis-pool",
+                    "properties": {
+                      "copy": [
+                        {
+                          "name": "backendAddresses",
+                          "count": "[length(parameters('backendIpAddresses'))]",
+                          "input": {
+                            "ipAddress": "[parameters('backendIpAddresses')[copyIndex('backendAddresses')]]"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "backendHttpSettingsCollection": [
+                  {
+                    "name": "iis-http",
+                    "properties": {
+                      "port": 80,
+                      "protocol": "Http",
+                      "cookieBasedAffinity": "Disabled",
+                      "requestTimeout": 30,
+                      "probe": {
+                        "id": "[format('{0}/probes/{1}', variables('gatewayId'), variables('healthProbeName'))]"
+                      }
+                    }
+                  }
+                ],
+                "probes": [
+                  {
+                    "name": "[variables('healthProbeName')]",
+                    "properties": {
+                      "protocol": "Http",
+                      "host": "127.0.0.1",
+                      "path": "/health.htm",
+                      "interval": 15,
+                      "timeout": 10,
+                      "unhealthyThreshold": 2,
+                      "match": {
+                        "statusCodes": [
+                          "200"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "httpListeners": [
+                  {
+                    "name": "http-listener",
+                    "properties": {
+                      "frontendIPConfiguration": {
+                        "id": "[format('{0}/frontendIPConfigurations/public-frontend', variables('gatewayId'))]"
+                      },
+                      "frontendPort": {
+                        "id": "[format('{0}/frontendPorts/http', variables('gatewayId'))]"
+                      },
+                      "protocol": "Http"
+                    }
+                  }
+                ],
+                "requestRoutingRules": [
+                  {
+                    "name": "http-rule",
+                    "properties": {
+                      "priority": 100,
+                      "ruleType": "Basic",
+                      "httpListener": {
+                        "id": "[format('{0}/httpListeners/http-listener', variables('gatewayId'))]"
+                      },
+                      "backendAddressPool": {
+                        "id": "[format('{0}/backendAddressPools/iis-pool', variables('gatewayId'))]"
+                      },
+                      "backendHttpSettings": {
+                        "id": "[format('{0}/backendHttpSettingsCollection/iis-http', variables('gatewayId'))]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "publicIp"
+              ]
+            }
+          },
+          "outputs": {
+            "appGwId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/applicationGateways', variables('gatewayName'))]"
+            },
+            "appGwName": {
+              "type": "string",
+              "value": "[variables('gatewayName')]"
+            },
+            "appGwPublicIp": {
+              "type": "string",
+              "value": "[reference('publicIp').ipAddress]"
+            },
+            "probeName": {
+              "type": "string",
+              "value": "[variables('healthProbeName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "network",
+        "vm"
+      ]
+    },
+    "monitoring": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-monitoring",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "prefix": {
+            "value": "[parameters('prefix')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "vmIds": {
+            "value": "[reference('vm').outputs.vmIds.value]"
+          },
+          "vmNames": {
+            "value": "[reference('vm').outputs.vmNames.value]"
+          },
+          "appGwName": {
+            "value": "[reference('appGw').outputs.appGwName.value]"
+          },
+          "alertEmail": {
+            "value": "[parameters('alertEmail')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "languageVersion": "2.0",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "5475474305893500826"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for deployment"
+              }
+            },
+            "prefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource name prefix"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags applied to every resource type that supports tags"
+              }
+            },
+            "vmNames": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minLength": 1,
+              "metadata": {
+                "description": "Target Windows VM names in this resource group; same order and length as vmIds"
+              }
+            },
+            "vmIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minLength": 1,
+              "metadata": {
+                "description": "Target Windows VM resource IDs; same order and length as vmNames"
+              }
+            },
+            "appGwName": {
+              "type": "string",
+              "metadata": {
+                "description": "Application Gateway name in this resource group"
+              }
+            },
+            "alertEmail": {
+              "type": "string",
+              "metadata": {
+                "description": "Action Group email address for alert notifications"
+              }
+            }
+          },
+          "variables": {
+            "vmMetricDefinitions": [
+              {
+                "suffix": "high-cpu",
+                "metricName": "Percentage CPU",
+                "threshold": 80,
+                "description": "CPU average exceeds 80% over 5 minutes."
+              },
+              {
+                "suffix": "os-disk-iops",
+                "metricName": "OS Disk IOPS Consumed Percentage",
+                "threshold": 90,
+                "description": "OS disk IOPS consumed average exceeds 90% over 5 minutes; requires a premium-storage-capable VM series."
+              },
+              {
+                "suffix": "os-disk-queue",
+                "metricName": "OS Disk Queue Depth",
+                "threshold": 10,
+                "description": "OS disk queue depth average exceeds 10 over 5 minutes. Static demo threshold, not a universal production baseline."
+              },
+              {
+                "suffix": "cached-iops",
+                "metricName": "VM Cached IOPS Consumed Percentage",
+                "threshold": 90,
+                "description": "VM cached IOPS consumed average exceeds 90% over 5 minutes. Reference alert for premium-storage-capable VMs; with caching None there may be no datapoints and this is not the uncached disk bottleneck signal."
+              }
+            ],
+            "vmMetricAlerts": "[flatten(map(parameters('vmNames'), lambda('vmName', 'i', map(variables('vmMetricDefinitions'), lambda('definition', createObject('vmName', lambdaVariables('vmName'), 'vmId', parameters('vmIds')[lambdaVariables('i')], 'definition', lambdaVariables('definition')))))))]",
+            "appGwMetricDefinitions": [
+              {
+                "suffix": "unhealthy-host",
+                "metricName": "UnhealthyHostCount",
+                "description": "At least one unhealthy Application Gateway backend host on average over 5 minutes.",
+                "operator": "GreaterThanOrEqual",
+                "threshold": 1,
+                "aggregation": "Average",
+                "dimensions": [
+                  {
+                    "name": "BackendSettingsPool",
+                    "operator": "Include",
+                    "values": [
+                      "*"
+                    ]
+                  }
+                ]
+              },
+              {
+                "suffix": "frontend-5xx",
+                "metricName": "ResponseStatus",
+                "description": "Application Gateway returned at least one 5xx response in 5 minutes (Sum).",
+                "operator": "GreaterThan",
+                "threshold": 0,
+                "aggregation": "Total",
+                "dimensions": [
+                  {
+                    "name": "HttpStatusGroup",
+                    "operator": "Include",
+                    "values": [
+                      "5xx"
+                    ]
+                  }
+                ]
+              },
+              {
+                "suffix": "backend-5xx",
+                "metricName": "BackendResponseStatus",
+                "description": "Backend members returned at least one 5xx response in 5 minutes (Sum); excludes gateway-generated errors.",
+                "operator": "GreaterThan",
+                "threshold": 0,
+                "aggregation": "Total",
+                "dimensions": [
+                  {
+                    "name": "HttpStatusGroup",
+                    "operator": "Include",
+                    "values": [
+                      "5xx"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "resources": {
+            "targetVms": {
+              "copy": {
+                "name": "targetVms",
+                "count": "[length(parameters('vmNames'))]"
+              },
+              "existing": true,
+              "type": "Microsoft.Compute/virtualMachines",
+              "apiVersion": "2024-07-01",
+              "name": "[parameters('vmNames')[copyIndex()]]"
+            },
+            "appGw": {
+              "existing": true,
+              "type": "Microsoft.Network/applicationGateways",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('appGwName')]"
+            },
+            "law": {
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2025-02-01",
+              "name": "[format('{0}-law', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "sku": {
+                  "name": "PerGB2018"
+                },
+                "retentionInDays": 30
+              }
+            },
+            "eventTable": {
+              "type": "Microsoft.OperationalInsights/workspaces/tables",
+              "apiVersion": "2025-02-01",
+              "name": "[format('{0}/{1}', format('{0}-law', parameters('prefix')), 'Event')]",
+              "properties": {
+                "retentionInDays": 30
+              },
+              "dependsOn": [
+                "law"
+              ]
+            },
+            "perfTable": {
+              "type": "Microsoft.OperationalInsights/workspaces/tables",
+              "apiVersion": "2025-02-01",
+              "name": "[format('{0}/{1}', format('{0}-law', parameters('prefix')), 'Perf')]",
+              "properties": {
+                "retentionInDays": 30
+              },
+              "dependsOn": [
+                "law"
+              ]
+            },
+            "dcr": {
+              "type": "Microsoft.Insights/dataCollectionRules",
+              "apiVersion": "2024-03-11",
+              "name": "[format('{0}-dcr', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "Windows",
+              "properties": {
+                "dataSources": {
+                  "performanceCounters": [
+                    {
+                      "name": "windowsPerfCounters",
+                      "streams": [
+                        "Microsoft-Perf"
+                      ],
+                      "samplingFrequencyInSeconds": 10,
+                      "counterSpecifiers": [
+                        "\\Processor Information(_Total)\\% Processor Time",
+                        "\\Memory\\Available Bytes",
+                        "\\Memory\\% Committed Bytes In Use",
+                        "\\LogicalDisk(*)\\% Free Space",
+                        "\\LogicalDisk(*)\\Disk Reads/sec",
+                        "\\LogicalDisk(*)\\Disk Writes/sec",
+                        "\\LogicalDisk(*)\\Avg. Disk Queue Length",
+                        "\\Network Interface(*)\\Bytes Received/sec",
+                        "\\Network Interface(*)\\Bytes Sent/sec"
+                      ]
+                    }
+                  ],
+                  "windowsEventLogs": [
+                    {
+                      "name": "serviceStateEvents",
+                      "streams": [
+                        "Microsoft-Event"
+                      ],
+                      "xPathQueries": [
+                        "System!*[System[Provider[@Name='Service Control Manager'] and (EventID=7036)]]"
+                      ]
+                    }
+                  ]
+                },
+                "destinations": {
+                  "logAnalytics": [
+                    {
+                      "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]",
+                      "name": "logAnalyticsDest"
+                    }
+                  ]
+                },
+                "dataFlows": [
+                  {
+                    "streams": [
+                      "Microsoft-Perf",
+                      "Microsoft-Event"
+                    ],
+                    "destinations": [
+                      "logAnalyticsDest"
+                    ]
+                  }
+                ]
+              },
+              "dependsOn": [
+                "eventTable",
+                "law",
+                "perfTable"
+              ]
+            },
+            "amaExtensions": {
+              "copy": {
+                "name": "amaExtensions",
+                "count": "[length(parameters('vmNames'))]"
+              },
+              "type": "Microsoft.Compute/virtualMachines/extensions",
+              "apiVersion": "2024-07-01",
+              "name": "[format('{0}/{1}', parameters('vmNames')[copyIndex()], 'AzureMonitorWindowsAgent')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "publisher": "Microsoft.Azure.Monitor",
+                "type": "AzureMonitorWindowsAgent",
+                "typeHandlerVersion": "1.0",
+                "autoUpgradeMinorVersion": true,
+                "enableAutomaticUpgrade": true,
+                "settings": {
+                  "authentication": {
+                    "managedIdentity": {}
+                  }
+                }
+              }
+            },
+            "dcrAssociations": {
+              "copy": {
+                "name": "dcrAssociations",
+                "count": "[length(parameters('vmNames'))]"
+              },
+              "type": "Microsoft.Insights/dataCollectionRuleAssociations",
+              "apiVersion": "2024-03-11",
+              "scope": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmNames')[copyIndex()])]",
+              "name": "[format('{0}-dcr-assoc', parameters('prefix'))]",
+              "properties": {
+                "dataCollectionRuleId": "[resourceId('Microsoft.Insights/dataCollectionRules', format('{0}-dcr', parameters('prefix')))]"
+              },
+              "dependsOn": [
+                "[format('amaExtensions[{0}]', copyIndex())]",
+                "dcr"
+              ]
+            },
+            "appGwDiagnostics": {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.Network/applicationGateways', parameters('appGwName'))]",
+              "name": "[format('{0}-appgw-metrics', parameters('prefix'))]",
+              "properties": {
+                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]",
+                "metrics": [
+                  {
+                    "category": "AllMetrics",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "law"
+              ]
+            },
+            "actionGroup": {
+              "type": "Microsoft.Insights/actionGroups",
+              "apiVersion": "2024-10-01-preview",
+              "name": "[format('{0}-ag', parameters('prefix'))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "groupShortName": "SREDemo",
+                "enabled": true,
+                "emailReceivers": [
+                  {
+                    "name": "AdminEmail",
+                    "emailAddress": "[parameters('alertEmail')]",
+                    "useCommonAlertSchema": true
+                  }
+                ]
+              }
+            },
+            "vmAlerts": {
+              "copy": {
+                "name": "vmAlerts",
+                "count": "[length(variables('vmMetricAlerts'))]"
+              },
+              "type": "Microsoft.Insights/metricAlerts",
+              "apiVersion": "2018-03-01",
+              "name": "[format('{0}-{1}-{2}-alert', parameters('prefix'), variables('vmMetricAlerts')[copyIndex()].vmName, variables('vmMetricAlerts')[copyIndex()].definition.suffix)]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "description": "[variables('vmMetricAlerts')[copyIndex()].definition.description]",
+                "severity": 2,
+                "enabled": true,
+                "scopes": [
+                  "[variables('vmMetricAlerts')[copyIndex()].vmId]"
+                ],
+                "evaluationFrequency": "PT1M",
+                "windowSize": "PT5M",
+                "criteria": {
+                  "odata.type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+                  "allOf": [
+                    {
+                      "name": "[variables('vmMetricAlerts')[copyIndex()].definition.suffix]",
+                      "metricName": "[variables('vmMetricAlerts')[copyIndex()].definition.metricName]",
+                      "metricNamespace": "Microsoft.Compute/virtualMachines",
+                      "operator": "GreaterThan",
+                      "threshold": "[variables('vmMetricAlerts')[copyIndex()].definition.threshold]",
+                      "timeAggregation": "Average",
+                      "criterionType": "StaticThresholdCriterion"
+                    }
+                  ]
+                },
+                "actions": [
+                  {
+                    "actionGroupId": "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag', parameters('prefix')))]"
+                  }
+                ]
+              },
+              "dependsOn": [
+                "actionGroup"
+              ]
+            },
+            "memoryAlert": {
+              "type": "Microsoft.Insights/scheduledQueryRules",
+              "apiVersion": "2025-01-01-preview",
+              "name": "[format('{0}-low-memory-alert', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "LogAlert",
+              "properties": {
+                "description": "Guest available memory averages below 200 MiB for 5 minutes (Windows Perf).",
+                "severity": 2,
+                "enabled": true,
+                "evaluationFrequency": "PT1M",
+                "windowSize": "PT5M",
+                "scopes": [
+                  "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]"
+                ],
+                "targetResourceTypes": [
+                  "Microsoft.Compute/virtualMachines"
+                ],
+                "criteria": {
+                  "allOf": [
+                    {
+                      "query": "[format('Perf\n| where _ResourceId in~ (dynamic({0}))\n| where ObjectName == \"Memory\" and CounterName == \"Available Bytes\"\n| summarize AvailableBytes = avg(CounterValue) by _ResourceId, Computer\n', string(parameters('vmIds')))]",
+                      "timeAggregation": "Average",
+                      "metricMeasureColumn": "AvailableBytes",
+                      "resourceIdColumn": "_ResourceId",
+                      "operator": "LessThan",
+                      "threshold": 209715200,
+                      "failingPeriods": {
+                        "numberOfEvaluationPeriods": 1,
+                        "minFailingPeriodsToAlert": 1
+                      }
+                    }
+                  ]
+                },
+                "actions": {
+                  "actionGroups": [
+                    "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag', parameters('prefix')))]"
+                  ]
+                }
+              },
+              "dependsOn": [
+                "actionGroup",
+                "dcrAssociations",
+                "law",
+                "perfTable"
+              ]
+            },
+            "iisStopAlert": {
+              "type": "Microsoft.Insights/scheduledQueryRules",
+              "apiVersion": "2025-01-01-preview",
+              "name": "[format('{0}-iis-stop-alert', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "LogAlert",
+              "properties": {
+                "description": "IIS W3SVC entered the stopped state (System / Service Control Manager / event 7036).",
+                "severity": 1,
+                "enabled": true,
+                "evaluationFrequency": "PT1M",
+                "windowSize": "PT5M",
+                "scopes": [
+                  "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]"
+                ],
+                "targetResourceTypes": [
+                  "Microsoft.Compute/virtualMachines"
+                ],
+                "criteria": {
+                  "allOf": [
+                    {
+                      "query": "[format('Event\n| where _ResourceId in~ (dynamic({0}))\n| where EventLog == \"System\" and Source == \"Service Control Manager\" and EventID == 7036\n| extend ServiceName = extract(@''<Data\\s+Name=\"param1\"\\s*>([^<]+)</Data>'', 1, EventData),\n         ServiceState = extract(@''<Data\\s+Name=\"param2\"\\s*>([^<]+)</Data>'', 1, EventData)\n| where (ServiceName in~ (\"W3SVC\", \"World Wide Web Publishing Service\") and ServiceState =~ \"stopped\")\n    or (isempty(ServiceName) and RenderedDescription matches regex @\"^The (World Wide Web Publishing Service|W3SVC) service entered the stopped state\\.\\s*$\")\n| project TimeGenerated, _ResourceId, Computer, RenderedDescription\n', string(parameters('vmIds')))]",
+                      "timeAggregation": "Count",
+                      "resourceIdColumn": "_ResourceId",
+                      "operator": "GreaterThanOrEqual",
+                      "threshold": 1,
+                      "failingPeriods": {
+                        "numberOfEvaluationPeriods": 1,
+                        "minFailingPeriodsToAlert": 1
+                      }
+                    }
+                  ]
+                },
+                "actions": {
+                  "actionGroups": [
+                    "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag', parameters('prefix')))]"
+                  ]
+                }
+              },
+              "dependsOn": [
+                "actionGroup",
+                "dcrAssociations",
+                "eventTable",
+                "law"
+              ]
+            },
+            "appGwAlerts": {
+              "copy": {
+                "name": "appGwAlerts",
+                "count": "[length(variables('appGwMetricDefinitions'))]"
+              },
+              "type": "Microsoft.Insights/metricAlerts",
+              "apiVersion": "2018-03-01",
+              "name": "[format('{0}-appgw-{1}-alert', parameters('prefix'), variables('appGwMetricDefinitions')[copyIndex()].suffix)]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "description": "[variables('appGwMetricDefinitions')[copyIndex()].description]",
+                "severity": 1,
+                "enabled": true,
+                "scopes": [
+                  "[resourceId('Microsoft.Network/applicationGateways', parameters('appGwName'))]"
+                ],
+                "evaluationFrequency": "PT1M",
+                "windowSize": "PT5M",
+                "criteria": {
+                  "odata.type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+                  "allOf": [
+                    {
+                      "name": "[variables('appGwMetricDefinitions')[copyIndex()].suffix]",
+                      "metricName": "[variables('appGwMetricDefinitions')[copyIndex()].metricName]",
+                      "metricNamespace": "Microsoft.Network/applicationGateways",
+                      "operator": "[variables('appGwMetricDefinitions')[copyIndex()].operator]",
+                      "threshold": "[variables('appGwMetricDefinitions')[copyIndex()].threshold]",
+                      "timeAggregation": "[variables('appGwMetricDefinitions')[copyIndex()].aggregation]",
+                      "dimensions": "[variables('appGwMetricDefinitions')[copyIndex()].dimensions]",
+                      "criterionType": "StaticThresholdCriterion"
+                    }
+                  ]
+                },
+                "actions": [
+                  {
+                    "actionGroupId": "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag', parameters('prefix')))]"
+                  }
+                ]
+              },
+              "dependsOn": [
+                "actionGroup"
+              ]
+            }
+          },
+          "outputs": {
+            "lawId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]"
+            },
+            "lawName": {
+              "type": "string",
+              "value": "[format('{0}-law', parameters('prefix'))]"
+            },
+            "actionGroupId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag', parameters('prefix')))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "appGw",
+        "vm"
+      ]
+    },
+    "chaos": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-chaos",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "prefix": {
+            "value": "[parameters('prefix')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "vmNames": {
+            "value": "[reference('vm').outputs.vmNames.value]"
+          },
+          "chaosIdentityClientId": {
+            "value": "[reference('vm').outputs.chaosIdentityClientId.value]"
+          },
+          "nsgName": {
+            "value": "[reference('network').outputs.nsgName.value]"
+          },
+          "appGwSubnetPrefix": {
+            "value": "[reference('network').outputs.appGwSubnetPrefix.value]"
+          },
+          "vmSubnetPrefix": {
+            "value": "[reference('network').outputs.vmSubnetPrefix.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "languageVersion": "2.0",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "3387563317578352306"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "prefix": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            },
+            "vmNames": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "chaosIdentityClientId": {
+              "type": "string"
+            },
+            "nsgName": {
+              "type": "string"
+            },
+            "appGwSubnetPrefix": {
+              "type": "string"
+            },
+            "vmSubnetPrefix": {
+              "type": "string"
+            }
+          },
+          "variables": {
+            "definitions": [
+              {
+                "key": "cpu",
+                "name": "[format('{0}-cpu-pressure-exp', parameters('prefix'))]",
+                "urn": "urn:csci:microsoft:agent:cpuPressure/1.0",
+                "duration": "PT10M",
+                "firstVmOnly": false,
+                "parameters": [
+                  {
+                    "key": "pressureLevel",
+                    "value": "95"
+                  }
+                ]
+              },
+              {
+                "key": "memory",
+                "name": "[format('{0}-memory-pressure-exp', parameters('prefix'))]",
+                "urn": "urn:csci:microsoft:agent:physicalMemoryPressure/1.0",
+                "duration": "PT10M",
+                "firstVmOnly": false,
+                "parameters": [
+                  {
+                    "key": "pressureLevel",
+                    "value": "90"
+                  }
+                ]
+              },
+              {
+                "key": "iis",
+                "name": "[format('{0}-stop-iis-exp', parameters('prefix'))]",
+                "urn": "urn:csci:microsoft:agent:stopService/1.0",
+                "duration": "PT5M",
+                "firstVmOnly": true,
+                "parameters": [
+                  {
+                    "key": "serviceName",
+                    "value": "W3SVC"
+                  }
+                ]
+              },
+              {
+                "key": "diskio",
+                "name": "[format('{0}-exp-diskio', parameters('prefix'))]",
+                "urn": "urn:csci:microsoft:agent:diskIOPressure/1.1",
+                "duration": "PT10M",
+                "firstVmOnly": true,
+                "parameters": [
+                  {
+                    "key": "pressureMode",
+                    "value": "PremiumStorageP10IOPS"
+                  },
+                  {
+                    "key": "targetTempDirectory",
+                    "value": "C:\\ChaosTemp"
+                  }
+                ]
+              }
+            ]
+          },
+          "resources": {
+            "vms": {
+              "copy": {
+                "name": "vms",
+                "count": "[length(parameters('vmNames'))]"
+              },
+              "existing": true,
+              "type": "Microsoft.Compute/virtualMachines",
+              "apiVersion": "2024-07-01",
+              "name": "[parameters('vmNames')[copyIndex()]]"
+            },
+            "targets": {
+              "copy": {
+                "name": "targets",
+                "count": "[length(range(0, length(parameters('vmNames'))))]"
+              },
+              "type": "Microsoft.Chaos/targets",
+              "apiVersion": "2024-01-01",
+              "scope": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmNames')[range(0, length(parameters('vmNames')))[copyIndex()]])]",
+              "name": "Microsoft-Agent",
+              "properties": {
+                "identities": [
+                  {
+                    "type": "AzureManagedIdentity",
+                    "clientId": "[parameters('chaosIdentityClientId')]",
+                    "tenantId": "[tenant().tenantId]"
+                  }
+                ]
+              }
+            },
+            "cpuCapabilities": {
+              "copy": {
+                "name": "cpuCapabilities",
+                "count": "[length(range(0, length(parameters('vmNames'))))]"
+              },
+              "type": "Microsoft.Chaos/targets/capabilities",
+              "apiVersion": "2024-01-01",
+              "scope": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmNames')[range(0, length(parameters('vmNames')))[range(0, length(parameters('vmNames')))[copyIndex()]]])]",
+              "name": "[format('{0}/{1}', 'Microsoft-Agent', 'CPUPressure-1.0')]",
+              "dependsOn": [
+                "[format('targets[{0}]', range(0, length(parameters('vmNames')))[copyIndex()])]"
+              ]
+            },
+            "memoryCapabilities": {
+              "copy": {
+                "name": "memoryCapabilities",
+                "count": "[length(range(0, length(parameters('vmNames'))))]"
+              },
+              "type": "Microsoft.Chaos/targets/capabilities",
+              "apiVersion": "2024-01-01",
+              "scope": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmNames')[range(0, length(parameters('vmNames')))[range(0, length(parameters('vmNames')))[copyIndex()]]])]",
+              "name": "[format('{0}/{1}', 'Microsoft-Agent', 'PhysicalMemoryPressure-1.0')]",
+              "dependsOn": [
+                "[format('targets[{0}]', range(0, length(parameters('vmNames')))[copyIndex()])]"
+              ]
+            },
+            "serviceCapabilities": {
+              "copy": {
+                "name": "serviceCapabilities",
+                "count": "[length(range(0, length(parameters('vmNames'))))]"
+              },
+              "type": "Microsoft.Chaos/targets/capabilities",
+              "apiVersion": "2024-01-01",
+              "scope": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmNames')[range(0, length(parameters('vmNames')))[range(0, length(parameters('vmNames')))[copyIndex()]]])]",
+              "name": "[format('{0}/{1}', 'Microsoft-Agent', 'StopService-1.0')]",
+              "dependsOn": [
+                "[format('targets[{0}]', range(0, length(parameters('vmNames')))[copyIndex()])]"
+              ]
+            },
+            "diskCapabilities": {
+              "copy": {
+                "name": "diskCapabilities",
+                "count": "[length(range(0, length(parameters('vmNames'))))]"
+              },
+              "type": "Microsoft.Chaos/targets/capabilities",
+              "apiVersion": "2024-01-01",
+              "scope": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmNames')[range(0, length(parameters('vmNames')))[range(0, length(parameters('vmNames')))[copyIndex()]]])]",
+              "name": "[format('{0}/{1}', 'Microsoft-Agent', 'DiskIOPressure-1.1')]",
+              "dependsOn": [
+                "[format('targets[{0}]', range(0, length(parameters('vmNames')))[copyIndex()])]"
+              ]
+            },
+            "nsg": {
+              "existing": true,
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('nsgName')]"
+            },
+            "nsgTarget": {
+              "type": "Microsoft.Chaos/targets",
+              "apiVersion": "2024-01-01",
+              "scope": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]",
+              "name": "Microsoft-NetworkSecurityGroup",
+              "properties": {}
+            },
+            "nsgCapability": {
+              "type": "Microsoft.Chaos/targets/capabilities",
+              "apiVersion": "2024-01-01",
+              "scope": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]",
+              "name": "[format('{0}/{1}', 'Microsoft-NetworkSecurityGroup', 'SecurityRule-1.0')]",
+              "dependsOn": [
+                "nsgTarget"
+              ]
+            },
+            "agents": {
+              "copy": {
+                "name": "agents",
+                "count": "[length(range(0, length(parameters('vmNames'))))]"
+              },
+              "type": "Microsoft.Compute/virtualMachines/extensions",
+              "apiVersion": "2024-07-01",
+              "name": "[format('{0}/{1}', parameters('vmNames')[range(0, length(parameters('vmNames')))[copyIndex()]], 'ChaosAgent')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "publisher": "Microsoft.Azure.Chaos",
+                "type": "ChaosWindowsAgent",
+                "typeHandlerVersion": "1.0",
+                "autoUpgradeMinorVersion": true,
+                "enableAutomaticUpgrade": true,
+                "settings": {
+                  "profile": "[reference(format('targets[{0}]', range(0, length(parameters('vmNames')))[copyIndex()])).agentProfileId]",
+                  "auth.msi.clientid": "[parameters('chaosIdentityClientId')]"
+                }
+              },
+              "dependsOn": [
+                "[format('targets[{0}]', range(0, length(parameters('vmNames')))[copyIndex()])]"
+              ]
+            },
+            "experiments": {
+              "copy": {
+                "name": "experiments",
+                "count": "[length(variables('definitions'))]"
+              },
+              "type": "Microsoft.Chaos/experiments",
+              "apiVersion": "2024-01-01",
+              "name": "[variables('definitions')[copyIndex()].name]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "selectors": [
+                  {
+                    "copy": [
+                      {
+                        "name": "targets",
+                        "count": "[length(range(0, if(variables('definitions')[copyIndex()].firstVmOnly, 1, length(parameters('vmNames')))))]",
+                        "input": {
+                          "id": "[extensionResourceId(resourceId('Microsoft.Compute/virtualMachines', parameters('vmNames')[copyIndex()]), 'Microsoft.Chaos/targets', 'Microsoft-Agent')]",
+                          "type": "ChaosTarget"
+                        }
+                      }
+                    ],
+                    "id": "vms",
+                    "type": "List"
+                  }
+                ],
+                "steps": [
+                  {
+                    "name": "[variables('definitions')[copyIndex()].key]",
+                    "branches": [
+                      {
+                        "name": "inject",
+                        "actions": [
+                          {
+                            "type": "continuous",
+                            "name": "[variables('definitions')[copyIndex()].urn]",
+                            "duration": "[variables('definitions')[copyIndex()].duration]",
+                            "parameters": "[variables('definitions')[copyIndex()].parameters]",
+                            "selectorId": "vms"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependsOn": [
+                "agents",
+                "cpuCapabilities",
+                "diskCapabilities",
+                "memoryCapabilities",
+                "serviceCapabilities",
+                "targets"
+              ]
+            },
+            "nsgExperiment": {
+              "type": "Microsoft.Chaos/experiments",
+              "apiVersion": "2024-01-01",
+              "name": "[format('{0}-exp-nsg-misconfig', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "selectors": [
+                  {
+                    "id": "nsg",
+                    "type": "List",
+                    "targets": [
+                      {
+                        "id": "[extensionResourceId(resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName')), 'Microsoft.Chaos/targets', 'Microsoft-NetworkSecurityGroup')]",
+                        "type": "ChaosTarget"
+                      }
+                    ]
+                  }
+                ],
+                "steps": [
+                  {
+                    "name": "nsg-misconfig",
+                    "branches": [
+                      {
+                        "name": "deny-backend-http",
+                        "actions": [
+                          {
+                            "type": "continuous",
+                            "name": "urn:csci:microsoft:networkSecurityGroup:securityRule/1.0",
+                            "duration": "PT10M",
+                            "selectorId": "nsg",
+                            "parameters": [
+                              {
+                                "key": "name",
+                                "value": "ChaosDenyAppGatewayHTTP"
+                              },
+                              {
+                                "key": "protocol",
+                                "value": "TCP"
+                              },
+                              {
+                                "key": "sourceAddresses",
+                                "value": "[string(createArray(parameters('appGwSubnetPrefix')))]"
+                              },
+                              {
+                                "key": "destinationAddresses",
+                                "value": "[string(createArray(parameters('vmSubnetPrefix')))]"
+                              },
+                              {
+                                "key": "sourcePortRanges",
+                                "value": "[[\"*\"]"
+                              },
+                              {
+                                "key": "destinationPortRanges",
+                                "value": "[[\"80\"]"
+                              },
+                              {
+                                "key": "action",
+                                "value": "Deny"
+                              },
+                              {
+                                "key": "priority",
+                                "value": "100"
+                              },
+                              {
+                                "key": "direction",
+                                "value": "Inbound"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "dependsOn": [
+                "nsgCapability",
+                "nsgTarget"
+              ]
+            }
+          },
+          "outputs": {
+            "experimentNames": {
+              "type": "object",
+              "value": {
+                "cpu": "[variables('definitions')[0].name]",
+                "memory": "[variables('definitions')[1].name]",
+                "iis": "[variables('definitions')[2].name]",
+                "diskio": "[variables('definitions')[3].name]",
+                "nsg": "[format('{0}-exp-nsg-misconfig', parameters('prefix'))]"
+              }
+            },
+            "experimentPrincipalIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "copy": {
+                "count": "[length(range(0, length(variables('definitions'))))]",
+                "input": "[reference(format('experiments[{0}]', range(0, length(variables('definitions')))[copyIndex()]), '2024-01-01', 'full').identity.principalId]"
+              }
+            },
+            "nsgExperimentPrincipalId": {
+              "type": "string",
+              "value": "[reference('nsgExperiment', '2024-01-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "chaosAgentReaderRoles",
+        "monitoring",
+        "network",
+        "vm"
+      ]
+    },
+    "sreAgent": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-sre-agent",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "prefix": {
+            "value": "[parameters('prefix')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "agentName": {
+            "value": "[parameters('sreAgentName')]"
+          },
+          "accessLevel": {
+            "value": "[parameters('sreAgentAccessLevel')]"
+          },
+          "agentMode": {
+            "value": "[parameters('sreAgentMode')]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[reference('monitoring').outputs.lawId.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "6356802254141372675"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for deployment"
+              }
+            },
+            "prefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource name prefix"
+              }
+            },
+            "tags": {
+              "type": "object"
+            },
+            "agentName": {
+              "type": "string",
+              "metadata": {
+                "description": "SRE Agent name"
+              }
+            },
+            "accessLevel": {
+              "type": "string",
+              "defaultValue": "High",
+              "allowedValues": [
+                "High",
+                "Low"
+              ],
+              "metadata": {
+                "description": "Access level for the SRE Agent (High = Contributor, Low = Reader)"
+              }
+            },
+            "agentMode": {
+              "type": "string",
+              "defaultValue": "Review",
+              "allowedValues": [
+                "Review",
+                "Autonomous",
+                "ReadOnly"
+              ],
+              "metadata": {
+                "description": "Agent mode (Review = semi-autonomous, Autonomous = fully automatic, ReadOnly = read only)"
+              }
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the existing Log Analytics Workspace from monitoring module"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "apiVersion": "2024-11-30",
+              "name": "[format('{0}-sre-identity', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "type": "Microsoft.Insights/components",
+              "apiVersion": "2020-02-02",
+              "name": "[format('{0}-sre-appinsights', parameters('prefix'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "web",
+              "properties": {
+                "Application_Type": "web",
+                "Request_Source": "SreAgent",
+                "WorkspaceResourceId": "[parameters('logAnalyticsWorkspaceId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Insights/actionGroups",
+              "apiVersion": "2024-10-01-preview",
+              "name": "[format('{0}-sre-smart-detection-ag', parameters('prefix'))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "groupShortName": "SmartDetect",
+                "enabled": true,
+                "armRoleReceivers": [
+                  {
+                    "name": "Monitoring Contributor",
+                    "roleId": "749f88d5-cbae-40b8-bcfc-e573ddc772fa",
+                    "useCommonAlertSchema": true
+                  },
+                  {
+                    "name": "Monitoring Reader",
+                    "roleId": "43d0d8ad-25c7-4714-9337-8ba259a9fe05",
+                    "useCommonAlertSchema": true
+                  }
+                ]
+              }
+            },
+            {
+              "type": "microsoft.alertsManagement/smartDetectorAlertRules",
+              "apiVersion": "2021-04-01",
+              "name": "[format('Failure Anomalies - {0}-sre-appinsights', parameters('prefix'))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "description": "Failure Anomalies notifies you of an unusual rise in the rate of failed HTTP requests or dependency calls.",
+                "state": "Enabled",
+                "severity": "Sev3",
+                "frequency": "PT1M",
+                "detector": {
+                  "id": "FailureAnomaliesDetector"
+                },
+                "scope": [
+                  "[resourceId('Microsoft.Insights/components', format('{0}-sre-appinsights', parameters('prefix')))]"
+                ],
+                "actionGroups": {
+                  "groupIds": [
+                    "[resourceId('Microsoft.Insights/actionGroups', format('{0}-sre-smart-detection-ag', parameters('prefix')))]"
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Insights/components', format('{0}-sre-appinsights', parameters('prefix')))]",
+                "[resourceId('Microsoft.Insights/actionGroups', format('{0}-sre-smart-detection-ag', parameters('prefix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '92aaf0da-9dab-42b6-94a3-d43ce8d16293')]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '92aaf0da-9dab-42b6-94a3-d43ce8d16293')]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '2024-11-30').principalId]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), 'acdd72a7-3385-48ef-bd42-f606fba81ae7')]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '2024-11-30').principalId]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix')))]"
+              ]
+            },
+            {
+              "condition": "[equals(parameters('accessLevel'), 'High')]",
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+                "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '2024-11-30').principalId]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.App/agents",
+              "apiVersion": "2025-05-01-preview",
+              "name": "[parameters('agentName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "SystemAssigned, UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))))]": {}
+                }
+              },
+              "properties": {
+                "knowledgeGraphConfiguration": {
+                  "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix')))]",
+                  "managedResources": [
+                    "[resourceGroup().id]"
+                  ]
+                },
+                "actionConfiguration": {
+                  "accessLevel": "[parameters('accessLevel')]",
+                  "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix')))]",
+                  "mode": "[parameters('agentMode')]"
+                },
+                "logConfiguration": {
+                  "applicationInsightsConfiguration": {
+                    "appId": "[reference(resourceId('Microsoft.Insights/components', format('{0}-sre-appinsights', parameters('prefix'))), '2020-02-02').AppId]",
+                    "connectionString": "[reference(resourceId('Microsoft.Insights/components', format('{0}-sre-appinsights', parameters('prefix'))), '2020-02-02').ConnectionString]"
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Insights/components', format('{0}-sre-appinsights', parameters('prefix')))]",
+                "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), 'b24988ac-6180-42a0-ab88-20f7382dd24c'))]",
+                "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '92aaf0da-9dab-42b6-94a3-d43ce8d16293'))]",
+                "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), 'acdd72a7-3385-48ef-bd42-f606fba81ae7'))]",
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "agentId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
+            },
+            "agentName": {
+              "type": "string",
+              "value": "[parameters('agentName')]"
+            },
+            "agentPortalUrl": {
+              "type": "string",
+              "value": "[format('https://portal.azure.com/#view/Microsoft_Azure_PaasServerless/AgentFrameBlade.ReactView/id/{0}', replace(resourceId('Microsoft.App/agents', parameters('agentName')), '/', '%2F'))]"
+            },
+            "sreIdentityId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix')))]"
+            },
+            "sreIdentityPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '2024-11-30').principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "monitoring"
+      ]
+    }
+  },
+  "outputs": {
+    "vmNames": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "value": "[reference('vm').outputs.vmNames.value]"
+    },
+    "vmIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "value": "[reference('vm').outputs.vmIds.value]"
+    },
+    "appGwPublicIp": {
+      "type": "string",
+      "value": "[reference('appGw').outputs.appGwPublicIp.value]"
+    },
+    "appGwName": {
+      "type": "string",
+      "value": "[reference('appGw').outputs.appGwName.value]"
+    },
+    "appGwId": {
+      "type": "string",
+      "value": "[reference('appGw').outputs.appGwId.value]"
+    },
+    "probeName": {
+      "type": "string",
+      "value": "[reference('appGw').outputs.probeName.value]"
+    },
+    "nsgName": {
+      "type": "string",
+      "value": "[reference('network').outputs.nsgName.value]"
+    },
+    "nsgId": {
+      "type": "string",
+      "value": "[reference('network').outputs.nsgId.value]"
+    },
+    "appGwSubnetPrefix": {
+      "type": "string",
+      "value": "[reference('network').outputs.appGwSubnetPrefix.value]"
+    },
+    "vmSubnetPrefix": {
+      "type": "string",
+      "value": "[reference('network').outputs.vmSubnetPrefix.value]"
+    },
+    "lawName": {
+      "type": "string",
+      "value": "[reference('monitoring').outputs.lawName.value]"
+    },
+    "lawId": {
+      "type": "string",
+      "value": "[reference('monitoring').outputs.lawId.value]"
+    },
+    "experimentNames": {
+      "type": "object",
+      "value": "[reference('chaos').outputs.experimentNames.value]"
+    },
+    "resourceGroupName": {
+      "type": "string",
+      "value": "[resourceGroup().name]"
+    },
+    "sreAgentName": {
+      "type": "string",
+      "value": "[reference('sreAgent').outputs.agentName.value]"
+    },
+    "sreAgentPortalUrl": {
+      "type": "string",
+      "value": "[reference('sreAgent').outputs.agentPortalUrl.value]"
+    }
+  }
+}
