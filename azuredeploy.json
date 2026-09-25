@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "17207374872663429730"
+      "templateHash": "13244462963264789959"
     }
   },
   "parameters": {
@@ -1689,7 +1689,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "3387563317578352306"
+              "templateHash": "393292483393851853"
             }
           },
           "parameters": {
@@ -1722,6 +1722,16 @@
             }
           },
           "variables": {
+            "copy": [
+              {
+                "name": "vmTargetSelectors",
+                "count": "[length(parameters('vmNames'))]",
+                "input": {
+                  "id": "[extensionResourceId(resourceId('Microsoft.Compute/virtualMachines', parameters('vmNames')[copyIndex('vmTargetSelectors')]), 'Microsoft.Chaos/targets', 'Microsoft-Agent')]",
+                  "type": "ChaosTarget"
+                }
+              }
+            ],
             "definitions": [
               {
                 "key": "cpu",
@@ -1926,18 +1936,9 @@
               "properties": {
                 "selectors": [
                   {
-                    "copy": [
-                      {
-                        "name": "targets",
-                        "count": "[length(range(0, if(variables('definitions')[copyIndex()].firstVmOnly, 1, length(parameters('vmNames')))))]",
-                        "input": {
-                          "id": "[extensionResourceId(resourceId('Microsoft.Compute/virtualMachines', parameters('vmNames')[copyIndex()]), 'Microsoft.Chaos/targets', 'Microsoft-Agent')]",
-                          "type": "ChaosTarget"
-                        }
-                      }
-                    ],
                     "id": "vms",
-                    "type": "List"
+                    "type": "List",
+                    "targets": "[if(variables('definitions')[copyIndex()].firstVmOnly, take(variables('vmTargetSelectors'), 1), variables('vmTargetSelectors'))]"
                   }
                 ],
                 "steps": [
@@ -1965,8 +1966,7 @@
                 "cpuCapabilities",
                 "diskCapabilities",
                 "memoryCapabilities",
-                "serviceCapabilities",
-                "targets"
+                "serviceCapabilities"
               ]
             },
             "nsgExperiment": {

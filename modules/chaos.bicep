@@ -117,6 +117,11 @@ var definitions = [
   }
 ]
 
+var vmTargetSelectors = [for name in vmNames: {
+  id: extensionResourceId(resourceId('Microsoft.Compute/virtualMachines', name), 'Microsoft.Chaos/targets', 'Microsoft-Agent')
+  type: 'ChaosTarget'
+}]
+
 resource experiments 'Microsoft.Chaos/experiments@2024-01-01' = [for definition in definitions: {
   name: definition.name
   location: location
@@ -129,10 +134,7 @@ resource experiments 'Microsoft.Chaos/experiments@2024-01-01' = [for definition 
       {
         id: 'vms'
         type: 'List'
-        targets: [for i in range(0, definition.firstVmOnly ? 1 : length(vmNames)): {
-          id: targets[i].id
-          type: 'ChaosTarget'
-        }]
+        targets: definition.firstVmOnly ? take(vmTargetSelectors, 1) : vmTargetSelectors
       }
     ]
     steps: [

@@ -119,6 +119,11 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual({p["key"]: p["value"] for p in disk["parameters"]},
                          {"pressureMode": "PremiumStorageP10IOPS", "targetTempDirectory": "C:\\ChaosTemp"})
         self.assertEqual(chaos["resources"]["agents"]["properties"]["type"], "ChaosWindowsAgent")
+        selector = chaos["resources"]["experiments"]["properties"]["selectors"][0]
+        self.assertNotIn("copy", selector)
+        selector_targets = selector["targets"]
+        self.assertIn("variables('vmTargetSelectors')", selector_targets)
+        self.assertNotIn("extensionResourceId", selector_targets)
         self.assertEqual(set(chaos["outputs"]["experimentNames"]["value"]), {"cpu", "memory", "iis", "diskio", "nsg"})
 
     def test_nsg_fault_and_scoped_rbac(self):
