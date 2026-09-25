@@ -3,14 +3,15 @@
 ## 共通の準備
 
 [README](../README.md)の構成を専用 RG にデプロイし、[SRE Agent](sre-agent-setup.md)を開きます。
-デモの前に、シナリオ 8 の手順で SRE Agent のライブレポート「SRE Lab Live Status」を作成しておきます（[ライブレポート](live-report.md)）。
-各シナリオの「症状確認 (ブラウザ・ダッシュボード)」では、このライブレポートをダッシュボードとして使用します。
+デモの前に、SRE Agent のライブレポート「SRE Lab Live Status」を作成しておきます（[ライブレポート](sre-agent-setup.md#手順-2-ライブレポートで状態ダッシュボードを作成)）。
+各シナリオの「症状確認」では、このライブレポートをダッシュボードとして使用します。
+発報したアラートを SRE Agent に自動で調査させる場合は、[Azure Monitor の接続](sre-agent-setup.md#手順-3-azure-monitor-のアラートを受信する)も済ませておきます。
 Gateway URL、全 VM の名前、デプロイ outputs、正常時のメトリクスを記録してください。
 既定は Windows IIS 2 台です。
 `vmCount=1` の場合、片系障害からのフェイルオーバーを実演できません。
 
 コマンドはリポジトリのルートから Bash で実行します。
-`RESOURCE_GROUP` を対象 RG に合わせ、必要時だけ `DEPLOYMENT_NAME` を指定します。
+`RESOURCE_GROUP` を指定しない場合、運用スクリプトはラボの RG を自動検出します。複数のラボがある場合は指定し、必要時だけ `DEPLOYMENT_NAME` を指定します。
 未指定の場合、運用スクリプトは必要な outputs を持つ成功した main デプロイを検出します。
 パラメータの prefix から対象リソース名を推測して操作しないでください。
 
@@ -27,6 +28,7 @@ Gateway URL、全 VM の名前、デプロイ outputs、正常時のメトリク
 
 全 VM の `Percentage CPU`、Gateway の正常ホスト数、ブラウザの HTTP 200 を確認します。
 CPU 実験は全 VM に 95% の負荷を 10 分間与えます。
+Windows の CPU Pressure は `% Processor Utility`（ターボによる周波数上昇を含む）を基準に負荷を調整するため、`Percentage CPU` は 60～75% 程度で横ばいになります。
 
 ### 障害注入
 
@@ -35,10 +37,16 @@ bash scripts/run-chaos.sh start cpu
 bash scripts/run-chaos.sh status cpu
 ```
 
-### 症状確認 (ブラウザ・ダッシュボード)
+### 症状確認
 
-全 VM の CPU 上昇と、5 分平均 80% 超の CPU アラートを確認します。
-静的な IIS ページでは高負荷でも HTTP 200 を返すことがあるため、必ず停止するとは説明しません。
+全 VM の CPU 上昇と、5 分平均 60% 超の CPU アラートを確認します。
+静的な IIS ページでは高負荷でも HTTP 200 を返すことがあるため、必ず停止するわけではありません。
+
+![alt text](./imgs/highcpu1.png)
+
+![alt text](./imgs/highcpu2.png)
+
+![alt text](./imgs/highcpu3.png)
 
 ### SRE Agentへの問いかけ例
 
@@ -55,7 +63,8 @@ bash scripts/run-chaos.sh stop cpu
 bash scripts/run-chaos.sh status cpu
 ```
 
-キャンセル要求の送信だけで完了と判断せず、実験の終了、CPU の低下、HTTP 200、アラート解消を確認します。
+キャンセル要求の送信だけで完了と判断せず、
+実験の終了、CPU の低下、HTTP 200、アラート解消を確認します。
 
 ## 2. メモリ圧迫
 
@@ -67,14 +76,19 @@ bash scripts/run-chaos.sh status cpu
 ### 障害注入
 
 ```bash
-bash scripts/run-chaos.sh memory
+bash scripts/run-chaos.sh start memory
 ```
 
-### 症状確認 (ブラウザ・ダッシュボード)
+### 症状確認
 
 Available Bytes の減少とブラウザの応答を比較します。
-メモリアラートは `Perf` の 5 分平均が 200 MiB 未満の場合であり、90% 負荷だけでは閾値を満たさない場合があります。
-データ欠損を空きメモリ 0 と解釈しないでください。
+メモリアラートは `Perf` の 5 分平均が 3 GiB 未満の場合に発報します。
+既定の `Standard_D2s_v5`（8 GiB）では、平常時の空きは約 5.9 GiB、90% 負荷時は約 0.9 GiB です。
+VM サイズを小さくすると平常時でも発報する場合があるため、しきい値を見直してください。
+
+![alt text](./imgs/highmem1.png)
+
+![alt text](./imgs/highmem2.png)
 
 ### SRE Agentへの問いかけ例
 
@@ -108,12 +122,16 @@ IIS 実験は最初の VM（`vm-01`）の `W3SVC` だけを 5 分間停止しま
 bash scripts/run-chaos.sh iis
 ```
 
-### 症状確認 (ブラウザ・ダッシュボード)
+### 症状確認
 
 プローブ判定後に正常 VM のみへ転送され、通常は HTTP 200 を維持します。
 判定まで一時的に失敗する可能性があります。
 片系の Unhealthy と Service Control Manager の Event ID 7036 を確認します。
 VM が 1 台なら正常な転送先がなく、502 になり得ます。
+
+![alt text](./imgs/stopiis1.png)
+
+![alt text](./imgs/stopiis2.png)
 
 ### SRE Agentへの問いかけ例
 
@@ -147,7 +165,7 @@ Chaos と手動版のどちらか一方だけを選びます。
 
 ```bash
 # Chaos 版: 10 分間の SecurityRule 1.0
-bash scripts/run-chaos.sh nsg
+bash scripts/run-chaos.sh start nsg
 ```
 
 SRE Agent に手動修復を提案させて承認するデモでは、代わりに次を使用します。
@@ -161,12 +179,16 @@ Chaos は `ChaosDenyAppGatewayHTTP`、手動版は `ManualDenyAppGatewayHTTP` �
 両者の優先度は 100 で競合します。
 実験中に SRE Agent や利用者が NSG を編集すると、実験が失敗することがあります。
 
-### 症状確認 (ブラウザ・ダッシュボード)
+### 症状確認
 
 新規接続やプローブ失敗が反映されると、Unhealthy が増えてブラウザに 502 が返る可能性があります。
 SecurityRule 1.0 は確立済みフローを切断しないため、即座の切断を期待しないでください。
 ブラウザからリクエストを送り、frontend 5xx を観測します。
+SRE Agent が調査するのは Sev1 の Unhealthy アラートです。frontend 5xx アラートは Sev3 のため通知のみです。
 Gateway が生成する 502 は backend 5xx アラートの対象ではありません。
+
+![alt text](./imgs/missnsg1.png)
+![alt text](./imgs/missnsg2.png)
 
 ### SRE Agentへの問いかけ例
 
@@ -195,7 +217,6 @@ bash scripts/run-chaos.sh status nsg
 
 最初の VM の OS ディスクが 127 GiB、Standard_LRS、caching=None であることを確認します。
 `DiskIOPressure-1.1` は `C:\ChaosTemp` に対して `PremiumStorageP10IOPS` の負荷モードで 10 分間実行します。
-負荷モード名はディスクを Premium SKU に変更する指定ではありません。
 
 ### 障害注入
 
@@ -203,13 +224,15 @@ bash scripts/run-chaos.sh status nsg
 bash scripts/run-chaos.sh diskio
 ```
 
-### 症状確認 (ブラウザ・ダッシュボード)
+### 症状確認
 
 `OS Disk IOPS Consumed Percentage`、`OS Disk Queue Depth`、ゲスト `Disk Reads/sec` / `Disk Writes/sec` を正常 VM と比較します。
 IOPS 90% 超とキュー深度 10 超のアラートは 5 分平均で評価します。
 負荷の実測結果次第で閾値未満になる場合もあります。
 `VM Cached IOPS Consumed Percentage` は参考アラートであり、caching=None ではデータが出ない場合があります。
-ブラウザの遅延が観測されない場合も、その事実を記録します。
+
+![alt text](./imgs/highdiskio1.png)
+![alt text](./imgs/highdiskio2.png)
 
 ### SRE Agentへの問いかけ例
 
@@ -242,7 +265,7 @@ IOPS とキューがベースラインへ戻り、HTTP 200 とバックエンド
 bash scripts/break-appgw-probe.sh
 ```
 
-### 症状確認 (ブラウザ・ダッシュボード)
+### 症状確認
 
 存在しない `/healthz` の応答により全バックエンドが Unhealthy となり、Gateway が 502 を返すことを確認します。
 VM のローカル `/health.htm` が正常であることと対比します。
@@ -277,7 +300,7 @@ bash scripts/fix-appgw-probe.sh
 SRE Agent ポータルで毎朝 9 時 JST のコスト報告と変更履歴報告のタスクを作成します。
 この手順はデモ担当者による作成手順であり、ライブレポートを開くだけではスケジュールを作成しません。
 
-### 症状確認 (ブラウザ・ダッシュボード)
+### 症状確認
 
 タスク一覧の次回実行時刻と、実行後の会話スレッドを確認します。
 ブラウザの IIS とライブレポートが正常であることも確認します。
@@ -307,11 +330,12 @@ RG 削除前に必要な実行結果を保存します。
 ### 障害注入
 
 障害は注入しません。
-[ライブレポート手順](live-report.md)に従い、**ライブ レポート** → **+ 新しいレポート** を選び、プロンプト例 1 で「SRE Lab Live Status」を作成します。
+[Log Analytics コネクタ](sre-agent-setup.md#log-analytics-コネクタを追加する)が **Connected** であることを確認します。
+[ライブレポート手順](sre-agent-setup.md#手順-2-ライブレポートで状態ダッシュボードを作成)に従い、**ライブ レポート** → **+ 新しいレポート** を選び、プロンプト例 1 で「SRE Lab Live Status」を作成します。
 使用するツールの確認では、読み取り専用のツールだけを承認します。
 障害デモ中に比較したい場合は、プロンプト例 2 で「SRE Lab Incident Timeline」も作成します。
 
-### 症状確認 (ブラウザ・ダッシュボード)
+### 症状確認
 
 レポートがギャラリーに保存され、VM ごとの CPU、空きメモリ、ディスク、ネットワーク、Gateway の正常数と 5xx、IIS 停止イベント、Chaos 実験の履歴が表示されることを確認します。
 **再読み込み** を選び、ブラウザの IIS のホスト名と Gateway の正常数が一致することを確認します。

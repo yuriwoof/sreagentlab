@@ -2,7 +2,8 @@
 # =============================================================================
 # common.sh – Shared lab safety checks.
 # Requires Bash, Azure CLI and Python 3 (stdlib only): Linux, Cloud Shell, Git Bash.
-# RESOURCE_GROUP defaults to rg-sreagentlab; SUBSCRIPTION_ID selects an account.
+# RESOURCE_GROUP: unset = auto-detect the single lab RG (deploy.sh uses rg-sreagentlab).
+# SUBSCRIPTION_ID selects an account.
 # DEPLOYMENT_NAME pins a successful main deployment; otherwise latest is selected.
 # =============================================================================
 set -euo pipefail
@@ -14,6 +15,7 @@ native_path() {
   case "${OSTYPE:-}" in msys*|cygwin*) cygpath -m "$1" ;; *) printf '%s\n' "$1" ;; esac
 }
 REPO_ROOT="$(native_path "$REPO_ROOT")"
+RESOURCE_GROUP_FROM_ENV="${RESOURCE_GROUP:+1}"
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-sreagentlab}"
 LOCATION="${LOCATION:-eastus2}"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -24,11 +26,11 @@ err() { printf "${RED}[ERROR]${NC} %s\n" "$*" >&2; }
 die() { err "$*"; exit 1; }
 
 preflight() {
+  local mode="${1:-existing}"
   command -v az >/dev/null || die "Install Azure CLI; then run az login."
   command -v python3 >/dev/null || die "Install Python 3 (python3 on PATH); no pip packages or jq required."
   # Prevent Git Bash from translating ARM resource IDs into Windows paths.
   export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
-  [[ "$RESOURCE_GROUP" =~ ^[a-zA-Z0-9_.()-]+$ && "$RESOURCE_GROUP" != *. ]] || die "Invalid RESOURCE_GROUP."
   if [[ -n "${SUBSCRIPTION_ID:-}" ]]; then
     az account set --subscription "$SUBSCRIPTION_ID" || die "Cannot select subscription."
   fi
@@ -36,7 +38,31 @@ preflight() {
   account="$(az account show --output json)" || die "Azure login required: run az login."
   SUBSCRIPTION_ID="$(printf '%s' "$account" | json_value id)"
   [[ "$SUBSCRIPTION_ID" =~ ^[a-fA-F0-9-]{36}$ ]] || die "Account did not return a subscription ID."
+  [[ -n "$RESOURCE_GROUP_FROM_ENV" || "$mode" == create ]] || detect_resource_group
+  [[ "$RESOURCE_GROUP" =~ ^[a-zA-Z0-9_.()-]+$ && "$RESOURCE_GROUP" != *. ]] || die "Invalid RESOURCE_GROUP."
   info "Subscription: $SUBSCRIPTION_ID; resource group: $RESOURCE_GROUP"
+}
+
+# The NSG experiment name is unique to this lab; tags are user-editable and not relied on.
+detect_resource_group() {
+  local experiments
+  experiments="$(az resource list --subscription "$SUBSCRIPTION_ID" --resource-type Microsoft.Chaos/experiments --output json)" ||
+    die "Cannot list Chaos experiments to find the lab resource group; set RESOURCE_GROUP."
+  RESOURCE_GROUP="$(printf '%s' "$experiments" | python3 -c '
+import json,sys
+try:
+    rows=json.load(sys.stdin)
+    groups={}
+    for r in rows:
+        name,group=str(r.get("name","")),str(r.get("resourceGroup",""))
+        if name.endswith("-exp-nsg-misconfig") and group:
+            groups.setdefault(group.lower(),group)
+    if not groups: raise ValueError("No lab resource group found in this subscription; set RESOURCE_GROUP.")
+    if len(groups)>1: raise ValueError("Multiple lab resource groups found ("+", ".join(sorted(groups.values()))+"); set RESOURCE_GROUP.")
+    print(next(iter(groups.values())))
+except (ValueError,TypeError,AttributeError) as e: sys.exit(str(e))
+')" || die "Resource group detection failed; no changes made."
+  info "Resource group auto-detected: $RESOURCE_GROUP (set RESOURCE_GROUP to override)."
 }
 
 json_value() {

@@ -4,9 +4,34 @@ Azure SRE Agent と Chaos Studio を使い、Windows Server 2022 の IIS を調�
 既定では 2 台の VM を Application Gateway の背後に配置します。
 本番用の高可用性構成ではなく、削除可能な専用リソースグループで使用してください。
 
+## ドキュメントの読み方
+
+次の順番で読み進めてください。
+
+### 1. 設定手順 (SRE Agent を含む)
+
+1. [前提条件とパラメータ](#前提条件とパラメータ)を確認
+2. [Deploy to Azure でデプロイ](#1-deploy-to-azure-でデプロイ)し、Web ページの表示を確認
+3. [SRE Agent のセットアップ](docs/sre-agent-setup.md)で管理対象リソースと権限を確認し、検証時に使う状態ダッシュボード（ライブレポート）を作成して、Azure Monitor のアラート受信を設定
+4. 任意: シナリオ 7 を行う場合は[定期タスク](docs/scheduled-tasks.md)の権限と Activity Log 転送を準備
+
+### 2. 検証実施手順
+
+1. [検証実施手順](#検証実施手順)で障害注入コマンドの使い方を確認
+2. [8 シナリオのデモ手順](docs/demo-scenario.md)に沿って、1 シナリオずつ障害注入・調査・復旧を実施
+3. 承認付き修復は[Runbook](docs/runbook-template.md)に従って実施・記録
+4. 終了後は[監視とコストの注意](#監視とコストの注意)に従ってリソースを削除
+
+### 3. 参考資料
+
+- [Azure CLI でデプロイ](#azure-cli-でデプロイ)（Deploy to Azure の代わりにローカルスクリプトを使う場合）
+- [Azure portal で手動構築](docs/azure-portal-manual-setup.md)（テンプレートを使わずに構築する場合）
+- [ローカル検証](#ローカル検証)（テンプレートとスクリプトを変更した場合）
+- [ファイル構成](#ファイル構成)
+
 ## 構成
 
-[![SRE Agent Lab の Azure 構成図](docs/architecture.svg)](docs/architecture.drawio)
+[![SRE Agent Lab の Azure 構成図](docs/imgs/architecture.svg)](docs/imgs/architecture.drawio)
 
 画像をクリックすると、draw.io で編集できる元図を開けます。
 
@@ -61,13 +86,14 @@ NSG SecurityRule 1.0 は既存フローを切断しないため、症状の発�
 | `tags` | `project=sreagentlab`、`env=demo`。タグ対応リソースへ適用 |
 | `sreAgentAccessLevel` / `sreAgentMode` | `High` / `Review`。読み取り専用デモは `Low` / `ReadOnly` を検討 |
 
-## クイックスタート
+## 設定手順
 
-### Azure portal からデプロイ
+### 1. Deploy to Azure でデプロイ
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fyuriwoof%2Fsreagentlab%2Fmain%2Fazuredeploy.json)
 
 ボタンを選び、サブスクリプションとリソース グループを指定して、少なくとも次の値を入力します。Bicep、Azure CLI、Bash は不要です。
+このボタンは、公開 GitHub リポジトリの [`azuredeploy.json`](azuredeploy.json) を Azure portal が取得してデプロイします。
 
 - **Admin Password**: 12～123 文字で 3 種類以上の文字種を含み、管理者名を含まない Windows 管理者パスワード
 - **Alert Email**: Azure Monitor アラートの通知先
@@ -75,11 +101,73 @@ NSG SecurityRule 1.0 は既存フローを切断しないため、症状の発�
 
 RDP を有効にする場合は、**Allowed Rdp Source** を自分の接続元だけに限定した IPv4 CIDR に変更します。`/0`、ワイルドカード、ループバックは使用しません。
 デプロイには、対象リソースを作成する権限に加えてロール割り当て権限が必要です。プロバイダー登録やリソース グループ作成が許可されていない場合は管理者へ依頼してください。
-このボタンは、公開 GitHub リポジトリの [`azuredeploy.json`](azuredeploy.json) を Azure portal が取得してデプロイします。
 
-### ローカルスクリプトからデプロイ
+デプロイが完了すると、以下のように AppGW に割り当てたパブリック IP アドレスを Web ブラウザで開くと、展開した HTML ファイルを表示できます。
 
-以下はリポジトリのルートから Bash で実行する手順です。
+![AppGWにアクセス](docs/imgs/webapp.png)
+
+アクセス先は、デプロイ出力 `appGwPublicIp` またはパブリック IP アドレス `<prefix>-appgw-pip` の IP アドレスを使った `http://<IP アドレス>/` です。
+IIS ページにはホスト名と VM ごとに異なる背景色が表示されます。
+繰り返し更新して両 VM の応答を確認してください。
+Cookie affinity は無効ですが、リクエストごとに必ず交互に表示される保証はありません。
+
+### 2. SRE Agent の設定
+
+1. デプロイ出力 `sreAgentPortalUrl` を開き、[SRE Agent のセットアップ](docs/sre-agent-setup.md)に従って次の 3 つを実施します。
+   - 手順 1: 管理対象リソースと権限の確認
+   - 手順 2: ライブレポートで状態ダッシュボード「SRE Lab Live Status」を作成（検証中の症状確認に使用）
+   - 手順 3: Azure Monitor をインシデント プラットフォームとして接続し、Sev1/Sev2 を対象とする Review モードの応答プランを作成（アラートを自動で受信・調査）
+2. シナリオ 7 を行う場合は、[定期タスク](docs/scheduled-tasks.md)の権限と Activity Log 転送を準備します。
+
+## 検証実施手順
+
+[8 シナリオのデモ手順](docs/demo-scenario.md)に沿って、障害注入、SRE Agent による調査、承認付き復旧を 1 シナリオずつ実施します。
+障害注入はリポジトリのルートから Bash と Azure CLI で実行します（Azure Cloud Shell も利用可能）。
+`RESOURCE_GROUP` を指定しない場合、スクリプトはサブスクリプション内のラボの RG（Chaos 実験 `<prefix>-exp-nsg-misconfig` がある RG）を自動検出します。
+ラボを複数の RG にデプロイしている場合は、`RESOURCE_GROUP` で対象を指定してください。
+
+```bash
+# export RESOURCE_GROUP="<デプロイ先の RG>"   # 複数のラボがある場合のみ
+bash scripts/run-chaos.sh cpu          # start cpu の短縮形
+bash scripts/run-chaos.sh status cpu
+bash scripts/run-chaos.sh stop cpu
+```
+
+`cpu` を `memory`、`iis`、`diskio`、`nsg` に置き換えて使用できます。
+承認付き修復の進め方と記録項目は[Runbook](docs/runbook-template.md)を参照してください。
+検証後は[監視とコストの注意](#監視とコストの注意)の手順でリソースを削除します。
+
+## 監視とコストの注意
+
+状態ダッシュボードには、SRE Agent の[ライブレポート (プレビュー)](https://learn.microsoft.com/azure/sre-agent/live-reports)を使用します。
+ライブレポートはデプロイ後にエージェントのポータルでチャットから作成するもので、Bicep ではデプロイしません（Azure Monitor ブックは使用しません）。
+エージェントは組み込みの Azure Monitor メトリクスと、LAW に取り込んだゲストの `Perf` / `Event` を使ってレポートを表示します。
+App Gateway の診断設定は `AllMetrics` のみで、アクセスログなどの有効化は不要です。
+レポートは最大 5 分間キャッシュされた結果を表示する場合があるため、デモ中は **再読み込み** を選びます。
+レポートの作成と更新は AAU を消費します。データ取得だけの再読み込みは AAU を消費しませんが、モデルによる要約を含めると再読み込みのたびに消費します。
+実験開始履歴の `AzureActivity` は、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。
+手順と権限は[SRE Agent のセットアップ](docs/sre-agent-setup.md)と[定期タスク](docs/scheduled-tasks.md)を参照してください。
+
+VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディスクなどの料金は継続します。
+料金はリージョンと利用時間で変わるため、固定の合計金額を前提にしないでください。
+デモ用スケジュールを止め、必要な記録を保存してから、削除対象を確認して実行します。
+
+```bash
+bash scripts/cleanup.sh
+```
+
+RG 外の任意のサブスクリプション診断設定は RG の削除では消えません。
+`cleanup.sh` は `sreagentlab-activity-${RESOURCE_GROUP}` という**正確な名前と送信先 LAW**を照合し、一致する任意の設定だけを先に削除してから RG 削除を要求します。
+確認時は RG 名を入力し、サブスクリプション診断設定を検査できない場合や送信先が異なる場合は、削除せず停止します。
+RG 削除要求の受付と削除完了は別なので、スクリプトが表示する `az group exists` で完了を確認してください。
+ポータルで別名の診断設定を作成した場合は、その設定を管理者が別途確認します。
+共有診断設定を一括削除しないでください。
+
+## 参考資料
+
+### Azure CLI でデプロイ
+
+Deploy to Azure の代わりに、リポジトリのルートから Bash でデプロイする手順です。
 `main.parameters.json` をローカル用にコピーし、通知先と利用者 ID などを編集します。
 コミット対象とローカル用のどちらも `adminPassword.value` は空文字のままにします。
 
@@ -100,28 +188,34 @@ Windows ではプライベートな NTFS 作業フォルダーを使用し、フ
 
 | 環境変数 | 用途 |
 |---|---|
-| `RESOURCE_GROUP` | 既定は `rg-sreagentlab` |
+| `RESOURCE_GROUP` | `deploy.sh` の既定は `rg-sreagentlab`。運用スクリプトは未指定ならラボの RG を自動検出（複数ある場合は指定が必要） |
 | `LOCATION` | 既定は `eastus2` |
 | `SUBSCRIPTION_ID` | 必要時に対象サブスクリプションを指定。未指定なら現在の Azure CLI アカウントを使用 |
 | `PARAMETERS_FILE` | 明示指定が優先。未指定なら `main.parameters.local.json`、なければ `main.parameters.json` |
 | `DEPLOYMENT_NAME` | 必要時のみ指定。運用スクリプトは未指定なら成功した main デプロイを outputs から自動検出 |
 
-デプロイ後に表示される **Gateway URL** と **SRE Agent のリンク**を開きます。
-IIS ページにはホスト名と VM ごとに異なる背景色が表示されます。
-繰り返し更新して両 VM の応答を確認してください。
-Cookie affinity は無効ですが、リクエストごとに必ず交互に表示される保証はありません。
-続いて SRE Agent の **ライブ レポート** で状態ダッシュボードを作成します（[ライブレポート](docs/live-report.md)）。
+デプロイ後に表示される **Gateway URL** で Web ページを確認し、[2. SRE Agent の設定](#2-sre-agent-の設定)に進みます。
+
+### Azure portal で手動構築
+
+テンプレートを使わずに、同じ構成を Azure portal で 1 つずつ作成する手順は[ポータル手動構築](docs/azure-portal-manual-setup.md)を参照してください。
+
+### ローカル検証
 
 ```bash
-bash scripts/run-chaos.sh cpu          # start cpu の短縮形
-bash scripts/run-chaos.sh status cpu
-bash scripts/run-chaos.sh stop cpu
+az bicep build --file main.bicep
+az bicep build --file modules/activity-log.bicep
+az bicep lint --file main.bicep
+python3 -m unittest discover -s tests -v
 ```
 
-`cpu` を `memory`、`iis`、`diskio`、`nsg` に置き換えて使用できます。
-障害は 1 種類ずつ実行し、[デモ手順](docs/demo-scenario.md)で復旧を確認します。
+テストには Azure CLI / Bicep、Python 3、Bash が必要です。
+スクリプトテストは Azure CLI をモックし、実際のリソースを変更しません。
+テンプレートテストは一時ディレクトリへビルドし、VM・フォールト・プローブ・監視・RBAC の生成設定を確認します。
+ビルドとローカルテストの成功は、サブスクリプションのポリシー、クォータ、SKU の在庫、実際の障害・復旧動作を保証しません。
+新規専用 RG へのデプロイ後に[デモ手順](docs/demo-scenario.md)で確認してください。
 
-## ファイル構成
+### ファイル構成
 
 ```text
 main.bicep / azuredeploy.json / main.parameters.json
@@ -137,55 +231,5 @@ scripts/
 tests/test_scripts.py / tests/test_templates.py
 docs/
   demo-scenario.md / sre-agent-setup.md / runbook-template.md
-  azure-portal-manual-setup.md / scheduled-tasks.md / live-report.md
+  azure-portal-manual-setup.md / scheduled-tasks.md
 ```
-
-## 監視とコストの注意
-
-状態ダッシュボードには、SRE Agent の[ライブレポート (プレビュー)](https://learn.microsoft.com/azure/sre-agent/live-reports)を使用します。
-ライブレポートはデプロイ後にエージェントのポータルでチャットから作成するもので、Bicep ではデプロイしません（Azure Monitor ブックは使用しません）。
-エージェントは組み込みの Azure Monitor メトリクスと、LAW に取り込んだゲストの `Perf` / `Event` を使ってレポートを表示します。
-App Gateway の診断設定は `AllMetrics` のみで、アクセスログなどの有効化は不要です。
-レポートは最大 5 分間キャッシュされた結果を表示する場合があるため、デモ中は **再読み込み** を選びます。
-レポートの作成と更新は AAU を消費します。データ取得だけの再読み込みは AAU を消費しませんが、モデルによる要約を含めると再読み込みのたびに消費します。
-実験開始履歴の `AzureActivity` は、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。
-手順と権限は[ライブレポート](docs/live-report.md)と[定期タスク](docs/scheduled-tasks.md)を参照してください。
-
-VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディスクなどの料金は継続します。
-料金はリージョンと利用時間で変わるため、固定の合計金額を前提にしないでください。
-デモ用スケジュールを止め、必要な記録を保存してから、削除対象を確認して実行します。
-
-```bash
-bash scripts/cleanup.sh
-```
-
-RG 外の任意のサブスクリプション診断設定は RG の削除では消えません。
-`cleanup.sh` は `sreagentlab-activity-${RESOURCE_GROUP}` という**正確な名前と送信先 LAW**を照合し、一致する任意の設定だけを先に削除してから RG 削除を要求します。
-確認時は RG 名を入力し、サブスクリプション診断設定を検査できない場合や送信先が異なる場合は、削除せず停止します。
-RG 削除要求の受付と削除完了は別なので、スクリプトが表示する `az group exists` で完了を確認してください。
-ポータルで別名の診断設定を作成した場合は、その設定を管理者が別途確認します。
-共有診断設定を一括削除しないでください。
-
-## ローカル検証
-
-```bash
-az bicep build --file main.bicep
-az bicep build --file modules/activity-log.bicep
-az bicep lint --file main.bicep
-python3 -m unittest discover -s tests -v
-```
-
-テストには Azure CLI / Bicep、Python 3、Bash が必要です。
-スクリプトテストは Azure CLI をモックし、実際のリソースを変更しません。
-テンプレートテストは一時ディレクトリへビルドし、VM・フォールト・プローブ・監視・RBAC の生成設定を確認します。
-ビルドとローカルテストの成功は、サブスクリプションのポリシー、クォータ、SKU の在庫、実際の障害・復旧動作を保証しません。
-新規専用 RG へのデプロイ後に[デモ手順](docs/demo-scenario.md)で確認してください。
-
-## ドキュメント
-
-- [8 シナリオのデモ手順](docs/demo-scenario.md)
-- [SRE Agent のセットアップと権限](docs/sre-agent-setup.md)
-- [Runbook と承認付き修復](docs/runbook-template.md)
-- [Windows 構成のポータル手動構築](docs/azure-portal-manual-setup.md)
-- [毎朝 9 時 JST の定期タスク](docs/scheduled-tasks.md)
-- [SRE Agent のライブレポート](docs/live-report.md)

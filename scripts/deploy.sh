@@ -16,7 +16,7 @@ set +a
 set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 export AZURE_CORE_LOG_LEVEL=warning
-preflight
+preflight create
 command -v mktemp >/dev/null || die "mktemp is required (included with Git Bash/Cloud Shell)."
 if [[ -z "${PARAMETERS_FILE:-}" ]]; then
   PARAMETERS_FILE=main.parameters.json
@@ -136,5 +136,5 @@ load_deployment
 ok "Deployment completed: $DEPLOYMENT_NAME"
 info "App Gateway: http://$(output appGwPublicIp)"
 info "SRE Agent: $(output sreAgentPortalUrl)"
-info "Live report: open the agent, select Live Reports > + New report (see docs/live-report.md)."
+info "Live report: open the agent, select Live Reports > + New report (see docs/sre-agent-setup.md)."
 verify_commands

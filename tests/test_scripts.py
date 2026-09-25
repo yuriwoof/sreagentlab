@@ -70,6 +70,10 @@ def diagnostic(name=DIAG, workspace=LAW):
             "logs": [{"category": "Administrative", "enabled": True}]}}
 
 
+def experiment(group=RG, name="srelab-exp-nsg-misconfig"):
+    return {"name": name, "resourceGroup": group, "type": "Microsoft.Chaos/experiments"}
+
+
 FAKE_AZ = r'''
 import json,os,sys
 from pathlib import Path
@@ -106,6 +110,8 @@ elif args[:3]==["deployment","group","list"]:
     result=config["deployments"]
 elif args[:3]==["deployment","group","show"]:
     result=config.get("shown",config["deployments"][0])
+elif args[:2]==["resource","list"]:
+    result=config["experiments"]
 elif args[:4]==["network","nsg","rule","list"]:
     result=config["rules"]
 elif args[:4]==["network","application-gateway","probe","show"]:
@@ -147,6 +153,7 @@ class ScriptTests(unittest.TestCase):
         self.config_path = self.work / "config.json"
         self.log_path = self.work / "calls.jsonl"
         self.config = dict(subscription=SUB, deployments=[deployment()], rules=[],
+                           experiments=[experiment()],
                            diagnostics=[], probe="/health.htm",
                            iis={"value": [{"code": "ComponentStatus/StdOut/succeeded",
                                            "message": "IIS_RECOVERY_HTTP_200"}]})
@@ -235,6 +242,29 @@ class ScriptTests(unittest.TestCase):
     def test_unknown_scenario_never_calls_azure(self):
         self.assertNotEqual(self.run_script("run-chaos.sh", "nginx").returncode, 0)
         self.assertEqual(self.calls(), [])
+
+    def test_resource_group_auto_detection(self):
+        other = "rg-sredemo"
+        main = self.config["deployments"][0]
+        main["id"] = main["id"].replace(RG, other)
+        self.config["experiments"] = [experiment(other), experiment(other, "srelab-cpu-pressure-exp"),
+                                      experiment("rg-unrelated", "unrelated-exp")]
+        result = self.run_script("run-chaos.sh", "cpu")
+        self.assert_success(result)
+        self.assertIn("auto-detected: " + other, result.stdout)
+        self.assertIn(f"/resourceGroups/{other}/", " ".join(self.calls(["rest"])[-1]["args"]))
+
+    def test_resource_group_detection_refuses_ambiguous_or_missing_lab(self):
+        for experiments in ([experiment("rg-a"), experiment("rg-b")], [experiment("rg-a", "other-exp")]):
+            self.config["experiments"] = experiments
+            self.assertNotEqual(self.run_script("run-chaos.sh", "cpu").returncode, 0)
+        self.assertEqual(self.calls(["deployment"]), [])
+        self.assertEqual(self.calls(["rest"]), [])
+
+    def test_explicit_resource_group_skips_detection(self):
+        self.config["experiments"] = []
+        self.assert_success(self.run_script("run-chaos.sh", "cpu", env={"RESOURCE_GROUP": RG}))
+        self.assertEqual(self.calls(["resource", "list"]), [])
 
     def test_select_latest_successful_main_not_nested_or_failed(self):
         nested = deployment("deploy-chaos", "2029")
@@ -418,6 +448,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("http://192.0.2.10", result.stdout)
         self.assertIn("https://portal.azure.com/#actual-agent", result.stdout)
         self.assertIn("Live Reports", result.stdout)
+        self.assertEqual(self.calls(["resource", "list"]), [])
 
     def test_deploy_failure_discards_secret_bearing_stderr_and_files(self):
         self.config["fail"] = ["deployment", "group", "create"]

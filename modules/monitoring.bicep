@@ -224,8 +224,9 @@ var vmMetricDefinitions = [
   {
     suffix: 'high-cpu'
     metricName: 'Percentage CPU'
-    threshold: 80
-    description: 'CPU average exceeds 80% over 5 minutes.'
+    // Windows CPU Pressure targets % Processor Utility, so 95% shows as ~60-75% here.
+    threshold: 60
+    description: 'CPU average exceeds 60% over 5 minutes.'
   }
   {
     suffix: 'os-disk-iops'
@@ -290,7 +291,8 @@ resource vmAlerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [for alert in v
 
 // ---------------------------------------------------------------------------
 // Guest memory alert – Perf, not an unsupported platform memory metric
-// Average Available Bytes < 200 MiB per VM over five minutes.
+// Average Available Bytes < 3 GiB per VM over five minutes.
+// Tuned for 8 GiB Standard_D2s_v5 (idle ~5.9 GiB, 90% pressure ~0.9 GiB); revisit for smaller sizes.
 // ---------------------------------------------------------------------------
 resource memoryAlert 'Microsoft.Insights/scheduledQueryRules@2025-01-01-preview' = {
   name: '${prefix}-low-memory-alert'
@@ -298,7 +300,7 @@ resource memoryAlert 'Microsoft.Insights/scheduledQueryRules@2025-01-01-preview'
   tags: tags
   kind: 'LogAlert'
   properties: {
-    description: 'Guest available memory averages below 200 MiB for 5 minutes (Windows Perf).'
+    description: 'Guest available memory averages below 3 GiB for 5 minutes (Windows Perf).'
     severity: 2
     enabled: true
     evaluationFrequency: 'PT1M'
@@ -322,7 +324,7 @@ Perf
           metricMeasureColumn: 'AvailableBytes'
           resourceIdColumn: '_ResourceId'
           operator: 'LessThan'
-          threshold: 209715200
+          threshold: 3221225472
           failingPeriods: {
             numberOfEvaluationPeriods: 1
             minFailingPeriodsToAlert: 1
@@ -411,6 +413,7 @@ var appGwMetricDefinitions = [
     suffix: 'unhealthy-host'
     metricName: 'UnhealthyHostCount'
     description: 'At least one unhealthy Application Gateway backend host on average over 5 minutes.'
+    severity: 1
     operator: 'GreaterThanOrEqual'
     threshold: 1
     aggregation: 'Average'
@@ -428,6 +431,8 @@ var appGwMetricDefinitions = [
     suffix: 'frontend-5xx'
     metricName: 'ResponseStatus'
     description: 'Application Gateway returned at least one 5xx response in 5 minutes (Sum).'
+    // Symptom of unhealthy backends; Sev3 keeps it out of the Sev1/Sev2 SRE Agent response plan.
+    severity: 3
     operator: 'GreaterThan'
     threshold: 0
     aggregation: 'Total'
@@ -445,6 +450,7 @@ var appGwMetricDefinitions = [
     suffix: 'backend-5xx'
     metricName: 'BackendResponseStatus'
     description: 'Backend members returned at least one 5xx response in 5 minutes (Sum); excludes gateway-generated errors.'
+    severity: 1
     operator: 'GreaterThan'
     threshold: 0
     aggregation: 'Total'
@@ -466,7 +472,7 @@ resource appGwAlerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [for definit
   tags: tags
   properties: {
     description: definition.description
-    severity: 1
+    severity: definition.severity
     enabled: true
     scopes: [
       appGw.id

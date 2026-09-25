@@ -107,9 +107,9 @@ resource failureAnomaliesDetector 'Microsoft.AlertsManagement/smartDetectorAlert
 
 // Log Analytics Reader
 resource logAnalyticsReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, sreIdentity.id, '92aaf0da-9dab-42b6-94a3-d43ce8d16293')
+  name: guid(resourceGroup().id, sreIdentity.id, '73c42c96-874c-492b-b04d-ab87d138a893')
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '92aaf0da-9dab-42b6-94a3-d43ce8d16293') // Log Analytics Reader
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '73c42c96-874c-492b-b04d-ab87d138a893') // Log Analytics Reader
     principalId: sreIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }

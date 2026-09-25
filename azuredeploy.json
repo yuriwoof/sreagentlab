@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "13244462963264789959"
+      "templateHash": "15885580548647933956"
     }
   },
   "parameters": {
@@ -1110,7 +1110,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "5475474305893500826"
+              "templateHash": "15499817858738360083"
             }
           },
           "parameters": {
@@ -1170,8 +1170,8 @@
               {
                 "suffix": "high-cpu",
                 "metricName": "Percentage CPU",
-                "threshold": 80,
-                "description": "CPU average exceeds 80% over 5 minutes."
+                "threshold": 60,
+                "description": "CPU average exceeds 60% over 5 minutes."
               },
               {
                 "suffix": "os-disk-iops",
@@ -1198,6 +1198,7 @@
                 "suffix": "unhealthy-host",
                 "metricName": "UnhealthyHostCount",
                 "description": "At least one unhealthy Application Gateway backend host on average over 5 minutes.",
+                "severity": 1,
                 "operator": "GreaterThanOrEqual",
                 "threshold": 1,
                 "aggregation": "Average",
@@ -1215,6 +1216,7 @@
                 "suffix": "frontend-5xx",
                 "metricName": "ResponseStatus",
                 "description": "Application Gateway returned at least one 5xx response in 5 minutes (Sum).",
+                "severity": 3,
                 "operator": "GreaterThan",
                 "threshold": 0,
                 "aggregation": "Total",
@@ -1232,6 +1234,7 @@
                 "suffix": "backend-5xx",
                 "metricName": "BackendResponseStatus",
                 "description": "Backend members returned at least one 5xx response in 5 minutes (Sum); excludes gateway-generated errors.",
+                "severity": 1,
                 "operator": "GreaterThan",
                 "threshold": 0,
                 "aggregation": "Total",
@@ -1493,7 +1496,7 @@
               "tags": "[parameters('tags')]",
               "kind": "LogAlert",
               "properties": {
-                "description": "Guest available memory averages below 200 MiB for 5 minutes (Windows Perf).",
+                "description": "Guest available memory averages below 3 GiB for 5 minutes (Windows Perf).",
                 "severity": 2,
                 "enabled": true,
                 "evaluationFrequency": "PT1M",
@@ -1512,7 +1515,7 @@
                       "metricMeasureColumn": "AvailableBytes",
                       "resourceIdColumn": "_ResourceId",
                       "operator": "LessThan",
-                      "threshold": 209715200,
+                      "threshold": 3221225472,
                       "failingPeriods": {
                         "numberOfEvaluationPeriods": 1,
                         "minFailingPeriodsToAlert": 1
@@ -1592,7 +1595,7 @@
               "tags": "[parameters('tags')]",
               "properties": {
                 "description": "[variables('appGwMetricDefinitions')[copyIndex()].description]",
-                "severity": 1,
+                "severity": "[variables('appGwMetricDefinitions')[copyIndex()].severity]",
                 "enabled": true,
                 "scopes": [
                   "[resourceId('Microsoft.Network/applicationGateways', parameters('appGwName'))]"
@@ -2128,7 +2131,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "6356802254141372675"
+              "templateHash": "8859866509249202041"
             }
           },
           "parameters": {
@@ -2258,9 +2261,9 @@
             {
               "type": "Microsoft.Authorization/roleAssignments",
               "apiVersion": "2022-04-01",
-              "name": "[guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '92aaf0da-9dab-42b6-94a3-d43ce8d16293')]",
+              "name": "[guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '73c42c96-874c-492b-b04d-ab87d138a893')]",
               "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '92aaf0da-9dab-42b6-94a3-d43ce8d16293')]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '73c42c96-874c-492b-b04d-ab87d138a893')]",
                 "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '2024-11-30').principalId]",
                 "principalType": "ServicePrincipal"
               },
@@ -2329,7 +2332,7 @@
               "dependsOn": [
                 "[resourceId('Microsoft.Insights/components', format('{0}-sre-appinsights', parameters('prefix')))]",
                 "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), 'b24988ac-6180-42a0-ab88-20f7382dd24c'))]",
-                "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '92aaf0da-9dab-42b6-94a3-d43ce8d16293'))]",
+                "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), '73c42c96-874c-492b-b04d-ab87d138a893'))]",
                 "[resourceId('Microsoft.Authorization/roleAssignments', guid(resourceGroup().id, resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix'))), 'acdd72a7-3385-48ef-bd42-f606fba81ae7'))]",
                 "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-sre-identity', parameters('prefix')))]"
               ]

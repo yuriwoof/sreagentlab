@@ -150,11 +150,16 @@ class TemplateTests(unittest.TestCase):
         self.assertNotIn("syslog", sources)
         self.assertIn("7036", sources["windowsEventLogs"][0]["xPathQueries"][0])
         metrics = {m["metricName"]: m for m in monitoring["variables"]["vmMetricDefinitions"]}
+        self.assertEqual(metrics["Percentage CPU"]["threshold"], 60)
+        memory = resources["memoryAlert"]["properties"]["criteria"]["allOf"][0]
+        self.assertEqual((memory["operator"], memory["threshold"]), ("LessThan", 3 * 1024 ** 3))
         self.assertEqual(metrics["OS Disk IOPS Consumed Percentage"]["threshold"], 90)
         self.assertEqual(metrics["OS Disk Queue Depth"]["threshold"], 10)
         self.assertEqual(resources["vmAlerts"]["properties"]["windowSize"], "PT5M")
         for metric in monitoring["variables"]["appGwMetricDefinitions"][1:]:
             self.assertEqual(metric["dimensions"], [{"name": "HttpStatusGroup", "operator": "Include", "values": ["5xx"]}])
+        severities = {m["suffix"]: m["severity"] for m in monitoring["variables"]["appGwMetricDefinitions"]}
+        self.assertEqual(severities, {"unhealthy-host": 1, "frontend-5xx": 3, "backend-5xx": 1})
         diagnostic = resources["appGwDiagnostics"]["properties"]
         self.assertNotIn("logs", diagnostic)
         self.assertEqual(diagnostic["metrics"], [{"category": "AllMetrics", "enabled": True}])

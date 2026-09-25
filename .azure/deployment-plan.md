@@ -10,7 +10,7 @@
 |---|---|---|
 | 1 | main.bicep、main.parameters.json、modules/network.bicep、modules/vm.bicep、modules/appgw.bicep、scripts/setup-iis.ps1 | Windows VM 配列、IIS、App Gateway、任意 RDP、共通タグ、明示的な NAT 外向き通信。既存 monitoring/chaos の Windows 化と複数 VM の接続も含む |
 | 2 | modules/chaos.bicep、modules/monitoring.bicep、modules/activity-log.bicep、modules/sre-agent.bicep、main.bicep | 公式フォールト、VM スコープ RBAC、NSG スコープ RBAC、Windows DCR、VM/App GW アラート、独立したサブスクリプション診断設定 |
-| 3 | scripts/*.sh、README.md、docs/demo-scenario.md、docs/runbook-template.md、docs/sre-agent-setup.md、docs/azure-portal-manual-setup.md、docs/scheduled-tasks.md、docs/live-report.md、.gitignore、tests/ | 入力秘匿、出力からのリソース解決、start/status/stop、障害と復旧の対、限定されたクリーンアップ、日本語手順、スクリプトと生成 ARM の検証 |
+| 3 | scripts/*.sh、README.md、docs/demo-scenario.md、docs/runbook-template.md、docs/sre-agent-setup.md、docs/azure-portal-manual-setup.md、docs/scheduled-tasks.md、.gitignore、tests/ | 入力秘匿、出力からのリソース解決、start/status/stop、障害と復旧の対、限定されたクリーンアップ、日本語手順、スクリプトと生成 ARM の検証 |
 
 各フェーズ終了時に `az bicep build --file main.bicep` を実行する。
 既存 Linux VM のインプレース OS 変更は行わず、新規デモ環境へのデプロイを前提とする。
@@ -21,7 +21,7 @@
 - VM に公開 IP を付けない既定構成では、AMA/Chaos Agent 用に NAT Gateway + 外向き専用 Public IP を追加する。受信公開は App Gateway のみ。
 - App Gateway の cookie affinity 無効化は厳密な交互応答を保証しない。複数回更新して両 VM が観測できることを確認する。
 - App Gateway 診断設定は要件の「AccessLog / PerformanceLog / FirewallLog は不要」に従い AllMetrics を Log Analytics に送る。
-- ライブレポートは Azure Monitor ブックではなく SRE Agent のライブ レポート (プレビュー) 機能。ポータルでチャットから作成するため IaC 化せず、docs/live-report.md に作成手順とプロンプトを記載する。
+- ライブレポートは Azure Monitor ブックではなく SRE Agent のライブ レポート (プレビュー) 機能。ポータルでチャットから作成するため IaC 化せず、docs/sre-agent-setup.md に作成手順とプロンプトを記載する。
 - NSG v1.0 フォールトは既存接続を即時切断しない。このため 502 まで遅延し得ることを明記する。
 - tags をサポートする全リソースへ共通タグを適用する。子リソースや RBAC など tags 非対応の API は除外する。
 - API は 2024 年以降の安定版を優先し、新しい安定版がないリソースは既存のサポート済みバージョンを維持する。
