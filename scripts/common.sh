@@ -17,7 +17,7 @@ native_path() {
 REPO_ROOT="$(native_path "$REPO_ROOT")"
 RESOURCE_GROUP_FROM_ENV="${RESOURCE_GROUP:+1}"
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-sreagentlab}"
-LOCATION="${LOCATION:-eastus2}"
+LOCATION="${LOCATION:-japaneast}"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 info() { printf "${CYAN}[INFO]${NC} %s\n" "$*"; }
 ok() { printf "${GREEN}[OK]${NC} %s\n" "$*"; }
@@ -43,7 +43,7 @@ preflight() {
   info "Subscription: $SUBSCRIPTION_ID; resource group: $RESOURCE_GROUP"
 }
 
-# The NSG experiment name is unique to this lab; tags are user-editable and not relied on.
+# The CPU experiment name identifies this lab; tags are user-editable and not relied on.
 detect_resource_group() {
   local experiments
   experiments="$(az resource list --subscription "$SUBSCRIPTION_ID" --resource-type Microsoft.Chaos/experiments --output json)" ||
@@ -55,7 +55,7 @@ try:
     groups={}
     for r in rows:
         name,group=str(r.get("name","")),str(r.get("resourceGroup",""))
-        if name.endswith("-exp-nsg-misconfig") and group:
+        if name.endswith("-cpu-pressure-exp") and group:
             groups.setdefault(group.lower(),group)
     if not groups: raise ValueError("No lab resource group found in this subscription; set RESOURCE_GROUP.")
     if len(groups)>1: raise ValueError("Multiple lab resource groups found ("+", ".join(sorted(groups.values()))+"); set RESOURCE_GROUP.")
@@ -168,7 +168,7 @@ for r in rules:
     p=r.get("properties",r)
     name=r.get("name","").lower()
     if mode=="break" and p.get("priority")==100 and name!="manualdenyappgatewayhttp":
-        sys.exit("Priority 100 is occupied (including Chaos); stop nsg first. No rule changed.")
+        sys.exit("Priority 100 is occupied; no rule changed.")
     if name=="manualdenyappgatewayhttp":
         expected={"priority":100,"access":"Deny","direction":"Inbound","protocol":"Tcp",
                   "sourceAddressPrefix":src,"destinationAddressPrefix":dst,

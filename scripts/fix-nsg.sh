@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# fix-nsg.sh – Remove ONLY the manual rule; use run-chaos.sh stop nsg for Chaos.
+# fix-nsg.sh – Remove only the manual lab rule.
 # =============================================================================
 set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
@@ -15,5 +15,4 @@ else
     -n ManualDenyAppGatewayHTTP --output none || die "Failed to delete manual deny."
   ok "Manual deny removed."
 fi
-info "ChaosDenyAppGatewayHTTP is never deleted here. Use run-chaos.sh stop nsg and wait for recovery."
 verify_commands

@@ -53,21 +53,19 @@ RDP が必要な場合だけ `enableRdpPublicIp=true` と、実際の接続元�
 |---|---|---|---|---|---|
 | 1 | CPU 高騰 | Chaos: `run-chaos.sh cpu`、全 VM に 95% / 10 分 | CPU 上昇、応答遅延の可能性 | メトリクスと実験時刻の照合、停止提案 | `run-chaos.sh stop cpu`、CPU と HTTP を確認 |
 | 2 | メモリ圧迫 | Chaos: `run-chaos.sh memory`、全 VM に 90% / 10 分 | Available Bytes 低下 | Perf とメモリ不足リスクの分析 | `run-chaos.sh stop memory`、空きメモリを確認 |
-| 3 | IIS 停止 | Chaos: `run-chaos.sh iis`、vm-01 の W3SVC / 5 分 | 片系 Unhealthy、残る VM へ転送 | SCM 7036 とプローブを照合、サービス復旧提案 | `run-chaos.sh stop iis`、未復旧なら `fix-iis.sh` |
-| 4 | NSG 誤設定 | Chaos: `run-chaos.sh nsg` または Script: `break-nsg.sh` | バックエンド到達不可、502 の可能性 | 規則差分と影響確認、所有者に応じた復旧提案 | Chaos は `stop nsg`、手動版は `fix-nsg.sh` |
+| 3 | IIS 停止 | Chaos: `run-chaos.sh iis`、vm-01 の W3SVC / 5 分 | 片系 Unhealthy、残る VM へ転送 | イベント ID 7036 の確認とプローブを照合、サービス復旧提案 | `run-chaos.sh stop iis`、未復旧なら `fix-iis.sh` |
+| 4 | NSG 誤設定 | Script: `break-nsg.sh` | バックエンド到達不可、502 の可能性 | 規則差分と影響確認、手動規則の復旧提案 | `fix-nsg.sh` |
 | 5 | ディスク IO 圧迫 | Chaos: `run-chaos.sh diskio`、vm-01 / 10 分 | IOPS 消費率とキュー増大、遅延の可能性 | OS ディスク制約と VM 制約の切り分け | `run-chaos.sh stop diskio`、IO と HTTP を確認 |
 | 6 | App Gateway プローブ誤設定 | Script: `break-appgw-probe.sh`、`/health.htm` → `/healthz` | 全バックエンド Unhealthy、502 | 正常な IIS と誤ったプローブパスを切り分け | `fix-appgw-probe.sh`、Healthy と HTTP 200 を確認 |
 | 7 | 定期タスク | 障害注入なし、ポータルで日次タスクを作成 | コストと変更履歴のレポート | 読み取り専用で要約し、根拠と未取得データを示す | デモ用タスクを無効化または削除 |
 | 8 | ライブレポート | 障害注入なし、SRE Agent の **ライブ レポート** で状態ダッシュボードをチャットから作成 | 全 VM と Gateway のメトリクス、IIS 停止イベント、実験履歴、アラートを保存済みレポートで一覧化 | 読み取り専用ツールでレポートを作成・保存し、再読み込みで最新化。チャットで直近 30 分の原因候補と証拠を報告 | 不要ならレポートを削除（復旧操作なし） |
 
-NSG の手動版 `ManualDenyAppGatewayHTTP` と Chaos 版 `ChaosDenyAppGatewayHTTP` は、どちらも優先度 100 を使用します。
-**同時に実行せず、SRE Agent の手動修復デモには手動版を選ぶか、Chaos を停止してから調査結果を再確認します。**
-実験中に外部から NSG を編集すると、実験が失敗することがあります。
-NSG SecurityRule 1.0 は既存フローを切断しないため、症状の発生が遅れる場合があります。
+NSG 誤設定では、`break-nsg.sh` が優先度 100 の `ManualDenyAppGatewayHTTP` を作成します。
+既存フローの状態やプローブ間隔により、症状の発生が遅れる場合があります。
 
 ## 前提条件とパラメータ
 
-- **Deploy to Azure** を使う場合、必要なのは Web ブラウザーと Azure portal へのサインインだけです。
+- **Deploy to Azure** を使う場合、必要なのは Web ブラウザと Azure portal へのサインインだけです。
 - ローカルスクリプトを使う場合は、Bash、Azure CLI（`az`）、Bicep CLI、`python3` とデプロイ用の `mktemp` を用意します。Windows では Git Bash または WSL を使用します。
 - `jq` は補助的な JSON 確認用に利用できます。現在の運用スクリプトの JSON 解析は `python3` を使用します。
 - ローカルスクリプトでは `az login` 後、対象サブスクリプションを確認します。
@@ -123,7 +121,7 @@ Cookie affinity は無効ですが、リクエストごとに必ず交互に表�
 
 [8 シナリオのデモ手順](docs/demo-scenario.md)に沿って、障害注入、SRE Agent による調査、承認付き復旧を 1 シナリオずつ実施します。
 障害注入はリポジトリのルートから Bash と Azure CLI で実行します（Azure Cloud Shell も利用可能）。
-`RESOURCE_GROUP` を指定しない場合、スクリプトはサブスクリプション内のラボの RG（Chaos 実験 `<prefix>-exp-nsg-misconfig` がある RG）を自動検出します。
+`RESOURCE_GROUP` を指定しない場合、スクリプトはサブスクリプション内のラボの RG（Chaos 実験 `<prefix>-cpu-pressure-exp` がある RG）を自動検出します。
 ラボを複数の RG にデプロイしている場合は、`RESOURCE_GROUP` で対象を指定してください。
 
 ```bash
@@ -133,7 +131,7 @@ bash scripts/run-chaos.sh status cpu
 bash scripts/run-chaos.sh stop cpu
 ```
 
-`cpu` を `memory`、`iis`、`diskio`、`nsg` に置き換えて使用できます。
+`cpu` を `memory`、`iis`、`diskio` に置き換えて使用できます。
 承認付き修復の進め方と記録項目は[Runbook](docs/runbook-template.md)を参照してください。
 検証後は[監視とコストの注意](#監視とコストの注意)の手順でリソースを削除します。
 
@@ -176,7 +174,7 @@ cp main.parameters.json main.parameters.local.json
 az ad signed-in-user show --query id -o tsv
 
 export RESOURCE_GROUP="rg-sreagentlab"
-export LOCATION="eastus2"
+export LOCATION="japaneast"
 bash scripts/deploy.sh
 ```
 
@@ -189,7 +187,7 @@ Windows ではプライベートな NTFS 作業フォルダーを使用し、フ
 | 環境変数 | 用途 |
 |---|---|
 | `RESOURCE_GROUP` | `deploy.sh` の既定は `rg-sreagentlab`。運用スクリプトは未指定ならラボの RG を自動検出（複数ある場合は指定が必要） |
-| `LOCATION` | 既定は `eastus2` |
+| `LOCATION` | 既定は `japaneast` |
 | `SUBSCRIPTION_ID` | 必要時に対象サブスクリプションを指定。未指定なら現在の Azure CLI アカウントを使用 |
 | `PARAMETERS_FILE` | 明示指定が優先。未指定なら `main.parameters.local.json`、なければ `main.parameters.json` |
 | `DEPLOYMENT_NAME` | 必要時のみ指定。運用スクリプトは未指定なら成功した main デプロイを outputs から自動検出 |

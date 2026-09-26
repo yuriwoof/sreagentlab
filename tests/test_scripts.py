@@ -34,7 +34,7 @@ def bash_path(path):
 
 def deployment(name="actual-main", timestamp="2026-01-01T00:00:00Z"):
     outputs = {
-        "experimentNames": {key: "actual-" + key for key in ("cpu", "memory", "iis", "diskio", "nsg")},
+        "experimentNames": {key: "actual-" + key for key in ("cpu", "memory", "iis", "diskio")},
         "sreAgentPortalUrl": "https://portal.azure.com/#actual-agent",
         "appGwName": "actual-gateway",
         "appGwPublicIp": "192.0.2.10",
@@ -70,7 +70,7 @@ def diagnostic(name=DIAG, workspace=LAW):
             "logs": [{"category": "Administrative", "enabled": True}]}}
 
 
-def experiment(group=RG, name="srelab-exp-nsg-misconfig"):
+def experiment(group=RG, name="srelab-cpu-pressure-exp"):
     return {"name": name, "resourceGroup": group, "type": "Microsoft.Chaos/experiments"}
 
 
@@ -217,7 +217,7 @@ class ScriptTests(unittest.TestCase):
                 self.assert_success(result)
 
     def test_chaos_scenarios_dispatch_and_output_names(self):
-        for scenario in ("cpu", "memory", "iis", "diskio", "nsg"):
+        for scenario in ("cpu", "memory", "iis", "diskio"):
             with self.subTest(scenario=scenario):
                 self.assert_success(self.run_script("run-chaos.sh", scenario))
                 url = self.calls(["rest"])[-1]["args"]
@@ -247,8 +247,7 @@ class ScriptTests(unittest.TestCase):
         other = "rg-sredemo"
         main = self.config["deployments"][0]
         main["id"] = main["id"].replace(RG, other)
-        self.config["experiments"] = [experiment(other), experiment(other, "srelab-cpu-pressure-exp"),
-                                      experiment("rg-unrelated", "unrelated-exp")]
+        self.config["experiments"] = [experiment(other), experiment("rg-unrelated", "unrelated-exp")]
         result = self.run_script("run-chaos.sh", "cpu")
         self.assert_success(result)
         self.assertIn("auto-detected: " + other, result.stdout)
@@ -318,8 +317,8 @@ class ScriptTests(unittest.TestCase):
         self.assert_success(self.run_script("fix-nsg.sh"))
         self.assertIn("ManualDenyAppGatewayHTTP", self.calls(["network", "nsg", "rule", "delete"])[0]["args"])
 
-    def test_nsg_protects_unrelated_rules_and_chaos_conflicts(self):
-        for rule in (manual_rule(name="other-rule"), manual_rule(name="ChaosDenyAppGatewayHTTP"),
+    def test_nsg_protects_unrelated_rules_and_conflicts(self):
+        for rule in (manual_rule(name="other-rule"),
                      manual_rule(name="MANUALDENYAPPGATEWAYHTTP", priority=200),
                      manual_rule(destinationPortRange="443")):
             self.config["rules"] = [rule]
@@ -327,16 +326,11 @@ class ScriptTests(unittest.TestCase):
         self.assertNotEqual(self.run_script("fix-nsg.sh").returncode, 0)
         self.assertEqual(self.calls(["network", "nsg", "rule", "create"]), [])
         self.assertEqual(self.calls(["network", "nsg", "rule", "delete"]), [])
-        self.config["rules"] = [manual_rule()]
-        self.assertNotEqual(self.run_script("run-chaos.sh", "nsg").returncode, 0)
-        self.assertEqual(self.calls(["rest"]), [])
-
-    def test_fix_nsg_ignores_chaos_and_missing_manual(self):
-        self.config["rules"] = [manual_rule(name="ChaosDenyAppGatewayHTTP")]
+    def test_fix_nsg_ignores_missing_manual(self):
+        self.config["rules"] = []
         result = self.run_script("fix-nsg.sh")
         self.assert_success(result)
         self.assertIn("absent", result.stdout)
-        self.assertIn("stop nsg", result.stdout)
         self.assertEqual(self.calls(["network", "nsg", "rule", "delete"]), [])
 
     def test_failed_nsg_or_probe_queries_do_not_mutate(self):

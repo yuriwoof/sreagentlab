@@ -48,7 +48,7 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual((p["adminPassword"]["minLength"], p["adminPassword"]["maxLength"]), (12, 123))
         self.assertNotIn("sshPublicKey", p)
         self.assertEqual(p["vmCount"]["defaultValue"], 2)
-        self.assertEqual(p["location"]["defaultValue"], "eastus2")
+        self.assertEqual(p["location"]["defaultValue"], "japaneast")
         self.assertEqual(p["tags"]["defaultValue"], {"project": "sreagentlab", "env": "demo"})
         parameters = json.loads((ROOT / "main.parameters.json").read_text(encoding="utf-8"))
         self.assertEqual(parameters["parameters"]["adminPassword"]["value"], "")
@@ -124,23 +124,13 @@ class TemplateTests(unittest.TestCase):
         selector_targets = selector["targets"]
         self.assertIn("variables('vmTargetSelectors')", selector_targets)
         self.assertNotIn("extensionResourceId", selector_targets)
-        self.assertEqual(set(chaos["outputs"]["experimentNames"]["value"]), {"cpu", "memory", "iis", "diskio", "nsg"})
+        self.assertEqual(set(chaos["outputs"]["experimentNames"]["value"]), {"cpu", "memory", "iis", "diskio"})
 
-    def test_nsg_fault_and_scoped_rbac(self):
-        experiment = self.module("chaos")["resources"]["nsgExperiment"]
-        action = experiment["properties"]["steps"][0]["branches"][0]["actions"][0]
-        self.assertEqual(action["name"], "urn:csci:microsoft:networkSecurityGroup:securityRule/1.0")
-        self.assertEqual(action["duration"], "PT10M")
-        parameters = {p["key"]: p["value"] for p in action["parameters"]}
-        self.assertEqual(parameters["priority"], "100")
-        self.assertEqual(parameters["action"], "Deny")
-        # ARM escapes a literal initial '[' as '[['.
-        self.assertEqual(json.loads(parameters["destinationPortRanges"][1:]), ["80"])
+    def test_chaos_rbac_is_vm_scoped(self):
+        self.assertNotIn("nsgExperiment", self.module("chaos")["resources"])
+        self.assertNotIn("nsgExperimentRole", self.main["resources"])
         for name in ("experimentReaderRoles", "chaosAgentReaderRoles"):
             self.assertIn("Microsoft.Compute/virtualMachines", self.main["resources"][name]["scope"])
-        role = self.main["resources"]["nsgExperimentRole"]
-        self.assertIn("Microsoft.Network/networkSecurityGroups", role["scope"])
-        self.assertIn("4d97b98b-1d4f-4787-a291-c67834d212e7", role["properties"]["roleDefinitionId"])
 
     def test_windows_collection_and_metric_thresholds(self):
         monitoring = self.module("monitoring")

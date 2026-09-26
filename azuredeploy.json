@@ -6,13 +6,13 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "15885580548647933956"
+      "templateHash": "6186456388012121433"
     }
   },
   "parameters": {
     "location": {
       "type": "string",
-      "defaultValue": "eastus2",
+      "defaultValue": "japaneast",
       "metadata": {
         "description": "Azure region for all regional resources. Verify SRE Agent availability, VM quota, and SKU availability before deployment."
       }
@@ -179,26 +179,6 @@
       "properties": {
         "principalId": "[reference('chaos').outputs.experimentPrincipalIds.value[variables('readerBindings')[copyIndex()].experiment]]",
         "roleDefinitionId": "[variables('readerRoleId')]",
-        "principalType": "ServicePrincipal"
-      },
-      "dependsOn": [
-        "chaos"
-      ]
-    },
-    "targetNsg": {
-      "existing": true,
-      "type": "Microsoft.Network/networkSecurityGroups",
-      "apiVersion": "2024-05-01",
-      "name": "[format('{0}-nsg', parameters('prefix'))]"
-    },
-    "nsgExperimentRole": {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('prefix')))]",
-      "name": "[guid(resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('prefix'))), parameters('prefix'), 'nsg-experiment', 'NetworkContributor')]",
-      "properties": {
-        "principalId": "[reference('chaos').outputs.nsgExperimentPrincipalId.value]",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4d97b98b-1d4f-4787-a291-c67834d212e7')]",
         "principalType": "ServicePrincipal"
       },
       "dependsOn": [
@@ -1673,15 +1653,6 @@
           },
           "chaosIdentityClientId": {
             "value": "[reference('vm').outputs.chaosIdentityClientId.value]"
-          },
-          "nsgName": {
-            "value": "[reference('network').outputs.nsgName.value]"
-          },
-          "appGwSubnetPrefix": {
-            "value": "[reference('network').outputs.appGwSubnetPrefix.value]"
-          },
-          "vmSubnetPrefix": {
-            "value": "[reference('network').outputs.vmSubnetPrefix.value]"
           }
         },
         "template": {
@@ -1692,7 +1663,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "393292483393851853"
+              "templateHash": "16190905605135453604"
             }
           },
           "parameters": {
@@ -1712,15 +1683,6 @@
               }
             },
             "chaosIdentityClientId": {
-              "type": "string"
-            },
-            "nsgName": {
-              "type": "string"
-            },
-            "appGwSubnetPrefix": {
-              "type": "string"
-            },
-            "vmSubnetPrefix": {
               "type": "string"
             }
           },
@@ -1876,28 +1838,6 @@
                 "[format('targets[{0}]', range(0, length(parameters('vmNames')))[copyIndex()])]"
               ]
             },
-            "nsg": {
-              "existing": true,
-              "type": "Microsoft.Network/networkSecurityGroups",
-              "apiVersion": "2024-05-01",
-              "name": "[parameters('nsgName')]"
-            },
-            "nsgTarget": {
-              "type": "Microsoft.Chaos/targets",
-              "apiVersion": "2024-01-01",
-              "scope": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]",
-              "name": "Microsoft-NetworkSecurityGroup",
-              "properties": {}
-            },
-            "nsgCapability": {
-              "type": "Microsoft.Chaos/targets/capabilities",
-              "apiVersion": "2024-01-01",
-              "scope": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]",
-              "name": "[format('{0}/{1}', 'Microsoft-NetworkSecurityGroup', 'SecurityRule-1.0')]",
-              "dependsOn": [
-                "nsgTarget"
-              ]
-            },
             "agents": {
               "copy": {
                 "name": "agents",
@@ -1971,90 +1911,6 @@
                 "memoryCapabilities",
                 "serviceCapabilities"
               ]
-            },
-            "nsgExperiment": {
-              "type": "Microsoft.Chaos/experiments",
-              "apiVersion": "2024-01-01",
-              "name": "[format('{0}-exp-nsg-misconfig', parameters('prefix'))]",
-              "location": "[parameters('location')]",
-              "tags": "[parameters('tags')]",
-              "identity": {
-                "type": "SystemAssigned"
-              },
-              "properties": {
-                "selectors": [
-                  {
-                    "id": "nsg",
-                    "type": "List",
-                    "targets": [
-                      {
-                        "id": "[extensionResourceId(resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName')), 'Microsoft.Chaos/targets', 'Microsoft-NetworkSecurityGroup')]",
-                        "type": "ChaosTarget"
-                      }
-                    ]
-                  }
-                ],
-                "steps": [
-                  {
-                    "name": "nsg-misconfig",
-                    "branches": [
-                      {
-                        "name": "deny-backend-http",
-                        "actions": [
-                          {
-                            "type": "continuous",
-                            "name": "urn:csci:microsoft:networkSecurityGroup:securityRule/1.0",
-                            "duration": "PT10M",
-                            "selectorId": "nsg",
-                            "parameters": [
-                              {
-                                "key": "name",
-                                "value": "ChaosDenyAppGatewayHTTP"
-                              },
-                              {
-                                "key": "protocol",
-                                "value": "TCP"
-                              },
-                              {
-                                "key": "sourceAddresses",
-                                "value": "[string(createArray(parameters('appGwSubnetPrefix')))]"
-                              },
-                              {
-                                "key": "destinationAddresses",
-                                "value": "[string(createArray(parameters('vmSubnetPrefix')))]"
-                              },
-                              {
-                                "key": "sourcePortRanges",
-                                "value": "[[\"*\"]"
-                              },
-                              {
-                                "key": "destinationPortRanges",
-                                "value": "[[\"80\"]"
-                              },
-                              {
-                                "key": "action",
-                                "value": "Deny"
-                              },
-                              {
-                                "key": "priority",
-                                "value": "100"
-                              },
-                              {
-                                "key": "direction",
-                                "value": "Inbound"
-                              }
-                            ]
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              },
-              "dependsOn": [
-                "nsgCapability",
-                "nsgTarget"
-              ]
             }
           },
           "outputs": {
@@ -2064,8 +1920,7 @@
                 "cpu": "[variables('definitions')[0].name]",
                 "memory": "[variables('definitions')[1].name]",
                 "iis": "[variables('definitions')[2].name]",
-                "diskio": "[variables('definitions')[3].name]",
-                "nsg": "[format('{0}-exp-nsg-misconfig', parameters('prefix'))]"
+                "diskio": "[variables('definitions')[3].name]"
               }
             },
             "experimentPrincipalIds": {
@@ -2077,10 +1932,6 @@
                 "count": "[length(range(0, length(variables('definitions'))))]",
                 "input": "[reference(format('experiments[{0}]', range(0, length(variables('definitions')))[copyIndex()]), '2024-01-01', 'full').identity.principalId]"
               }
-            },
-            "nsgExperimentPrincipalId": {
-              "type": "string",
-              "value": "[reference('nsgExperiment', '2024-01-01', 'full').identity.principalId]"
             }
           }
         }
@@ -2088,7 +1939,6 @@
       "dependsOn": [
         "chaosAgentReaderRoles",
         "monitoring",
-        "network",
         "vm"
       ]
     },

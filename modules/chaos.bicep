@@ -8,9 +8,6 @@ param prefix string
 param tags object
 param vmNames string[]
 param chaosIdentityClientId string
-param nsgName string
-param appGwSubnetPrefix string
-param vmSubnetPrefix string
 
 resource vms 'Microsoft.Compute/virtualMachines@2024-07-01' existing = [for name in vmNames: {
   name: name
@@ -46,19 +43,6 @@ resource diskCapabilities 'Microsoft.Chaos/targets/capabilities@2024-01-01' = [f
   parent: targets[i]
   name: 'DiskIOPressure-1.1'
 }]
-
-resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' existing = {
-  name: nsgName
-}
-resource nsgTarget 'Microsoft.Chaos/targets@2024-01-01' = {
-  name: 'Microsoft-NetworkSecurityGroup'
-  scope: nsg
-  properties: {}
-}
-resource nsgCapability 'Microsoft.Chaos/targets/capabilities@2024-01-01' = {
-  parent: nsgTarget
-  name: 'SecurityRule-1.0'
-}
 
 resource agents 'Microsoft.Compute/virtualMachines/extensions@2024-07-01' = [for i in range(0, length(vmNames)): {
   parent: vms[i]
@@ -166,62 +150,10 @@ resource experiments 'Microsoft.Chaos/experiments@2024-01-01' = [for definition 
   ]
 }]
 
-// v1.0 does not flush existing connections; an existing flow can delay the outage.
-// Do not run the manual NSG rule concurrently: priority 100 must be unique.
-resource nsgExperiment 'Microsoft.Chaos/experiments@2024-01-01' = {
-  name: '${prefix}-exp-nsg-misconfig'
-  location: location
-  tags: tags
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    selectors: [
-      {
-        id: 'nsg'
-        type: 'List'
-        targets: [{ id: nsgTarget.id, type: 'ChaosTarget' }]
-      }
-    ]
-    steps: [
-      {
-        name: 'nsg-misconfig'
-        branches: [
-          {
-            name: 'deny-backend-http'
-            actions: [
-              {
-                type: 'continuous'
-                name: 'urn:csci:microsoft:networkSecurityGroup:securityRule/1.0'
-                duration: 'PT10M'
-                selectorId: 'nsg'
-                parameters: [
-                  { key: 'name', value: 'ChaosDenyAppGatewayHTTP' }
-                  { key: 'protocol', value: 'TCP' }
-                  { key: 'sourceAddresses', value: string([appGwSubnetPrefix]) }
-                  { key: 'destinationAddresses', value: string([vmSubnetPrefix]) }
-                  { key: 'sourcePortRanges', value: '["*"]' }
-                  { key: 'destinationPortRanges', value: '["80"]' }
-                  { key: 'action', value: 'Deny' }
-                  { key: 'priority', value: '100' }
-                  { key: 'direction', value: 'Inbound' }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  }
-  dependsOn: [nsgCapability]
-}
-
 output experimentNames object = {
   cpu: experiments[0].name
   memory: experiments[1].name
   iis: experiments[2].name
   diskio: experiments[3].name
-  nsg: nsgExperiment.name
 }
 output experimentPrincipalIds string[] = [for i in range(0, length(definitions)): experiments[i].identity.principalId]
-output nsgExperimentPrincipalId string = nsgExperiment.identity.principalId

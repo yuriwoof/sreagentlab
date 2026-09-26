@@ -79,7 +79,7 @@
                 <mxCell id="internet-icon" value="" style="image;aspect=fixed;html=1;points=[];image=img/lib/azure2/general/Globe.svg;strokeColor=none;fillColor=none;" parent="internet" connectable="0" vertex="1">
                     <mxGeometry x="9" y="10" width="34" height="34" as="geometry"/>
                 </mxCell>
-                <mxCell id="chaos" value="&lt;b&gt;Azure Chaos Studio&lt;/b&gt;&lt;br&gt;CPU / Memory / IIS / Disk IO&lt;br&gt;NSG Security Rule" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDE7E9;strokeColor=#D13438;strokeWidth=2;fontColor=#172B4D;fontSize=12;arcSize=6;align=left;spacingLeft=58;" parent="1" vertex="1">
+                <mxCell id="chaos" value="&lt;b&gt;Azure Chaos Studio&lt;/b&gt;&lt;br&gt;CPU / Memory / IIS / Disk IO" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDE7E9;strokeColor=#D13438;strokeWidth=2;fontColor=#172B4D;fontSize=12;arcSize=6;align=left;spacingLeft=58;" parent="1" vertex="1">
                     <mxGeometry x="1000" y="145" width="230" height="95" as="geometry"/>
                 </mxCell>
                 <mxCell id="chaos-icon" value="" style="image;aspect=fixed;html=1;points=[];image=img/lib/azure2/other/Azure_Chaos_Studio.svg;strokeColor=none;fillColor=none;" parent="chaos" connectable="0" vertex="1">
@@ -150,9 +150,6 @@
                             <mxPoint x="1105" y="360"/>
                         </Array>
                     </mxGeometry>
-                </mxCell>
-                <mxCell id="e-chaos-nsg" value="NSG 障害" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;dashPattern=8 4;strokeColor=#D13438;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" parent="1" source="chaos" target="vmNsg" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="e-vm-law" value="AMA / DCR" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8764B8;strokeWidth=2;endArrow=block;endFill=1;fontSize=11;" parent="1" source="vm1" target="law" edge="1">
                     <mxGeometry relative="1" as="geometry">

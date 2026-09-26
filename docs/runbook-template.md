@@ -61,27 +61,21 @@ Perf
 az network nsg rule list --resource-group "$RESOURCE_GROUP" --nsg-name "$NSG_NAME" \
   --query "[].{name:name,priority:priority,access:access,direction:direction,source:sourceAddressPrefix,destination:destinationAddressPrefix,port:destinationPortRange}" \
   -o table
-bash scripts/run-chaos.sh status nsg
 ```
 
-`ManualDenyAppGatewayHTTP` と `ChaosDenyAppGatewayHTTP` は両方とも優先度 100 です。
-両方を共存させません。
+障害規則は優先度 100 の `ManualDenyAppGatewayHTTP` です。
 既定の正常規則は、App Gateway サブネットから VM サブネットの TCP 80 を許可する優先度 200 の `AllowHTTPFromApplicationGateway` です。
 
 ```text
 対象 NSG の ManualDenyAppGatewayHTTP が正常規則より先に一致することを確認しました。
-Chaos NSG 実験が動作していないことを再確認して、この手動規則だけを削除する案です。
+この手動規則だけを削除する案です。
 対象 NSG の規則変更権限だけを使い、他の規則は変更しません。
 実行承認をお願いします。
 ```
 
 ### 承認後の実行と確認
 
-Chaos 版の場合、先に `bash scripts/run-chaos.sh stop nsg` で停止し、状態と Chaos 所有規則の撤去を確認します。
-実験中の NSG 外部編集は、実験失敗の原因になり得ます。
-`fix-nsg.sh` は手動規則だけが対象であり、Chaos 所有規則の削除に使用しません。
-
-手動版で承認済みの場合のみ、次を実行します。
+承認済みの場合のみ、次を実行します。
 
 ```bash
 bash scripts/fix-nsg.sh
@@ -188,5 +182,5 @@ VM 側の成功だけで終了せず、Gateway の Backend health と外部 HTTP
 対象 ID、UTC/JST のタイムライン、アラートと指標、実行した KQL/API/Run Command、
 確認済み原因と原因候補、承認者、変更差分、ロールバック、復旧確認、未確認事項を含めてください。
 未実行の操作は提案と明記し、秘密情報は含めないでください。
-NSG の所有者、Chaos の停止確認、最小権限、ディスクの破壊的変更を避けた理由も記録してください。
+NSG 規則の所有者、最小権限、ディスクの破壊的変更を避けた理由も記録してください。
 ```

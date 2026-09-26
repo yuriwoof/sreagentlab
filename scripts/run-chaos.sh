@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run-chaos.sh – [start|status|stop] [cpu|memory|iis|diskio|nsg]
+# run-chaos.sh – [start|status|stop] [cpu|memory|iis|diskio]
 # A scenario alone means start; no arguments means start cpu.
 # =============================================================================
 set -euo pipefail
@@ -8,22 +8,12 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 ACTION=start
 case "${1:-}" in start|status|stop) ACTION="$1"; shift ;; esac
 SCENARIO="${1:-cpu}"
-[[ $# -le 1 ]] || die "Usage: $0 [start|status|stop] [cpu|memory|iis|diskio|nsg]"
-case "$SCENARIO" in cpu|memory|iis|diskio|nsg) ;; *) die "Unknown scenario '$SCENARIO' (cpu, memory, iis, diskio, nsg)." ;; esac
+[[ $# -le 1 ]] || die "Usage: $0 [start|status|stop] [cpu|memory|iis|diskio]"
+case "$SCENARIO" in cpu|memory|iis|diskio) ;; *) die "Unknown scenario '$SCENARIO' (cpu, memory, iis, diskio)." ;; esac
 preflight
 load_deployment
 EXPERIMENT_NAME="$(resource_name experimentNames "$SCENARIO")"
 URL="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Chaos/experiments/$EXPERIMENT_NAME"
-if [[ "$ACTION" == start && "$SCENARIO" == nsg ]]; then
-  load_nsg_rules
-  printf '%s' "$NSG_RULES" | python3 -c '
-import json,sys
-r=json.load(sys.stdin)
-if not isinstance(r,list): sys.exit("Invalid NSG rules")
-if any(x.get("properties",x).get("priority")==100 for x in r):
-    sys.exit("Priority 100 is occupied; fix the manual rule or stop the existing Chaos experiment first.")
-' || die "NSG preflight failed."
-fi
 case "$ACTION" in
   start)
     az rest --method post --url "$URL/start?api-version=2024-01-01" --output json || die "Chaos start failed."

@@ -4,7 +4,7 @@
 # Requires Bash, Azure CLI/Bicep, Python 3 and mktemp (Linux/Cloud Shell/Git Bash).
 # PARAMETERS_FILE: absolute or repo-relative; default main.parameters.local.json
 # if present, else main.parameters.json. Password value must be absent or empty.
-# RESOURCE_GROUP=rg-sreagentlab; LOCATION=eastus2 overrides parameter location.
+# RESOURCE_GROUP=rg-sreagentlab; LOCATION=japaneast overrides parameter location.
 # DEPLOYMENT_NAME defaults to a timestamp; SUBSCRIPTION_ID selects Azure account.
 # Scratch files are owner-only in the repo and removed on exit/signals. On Windows,
 # use a private NTFS checkout (umask cannot replace filesystem ACL protection).

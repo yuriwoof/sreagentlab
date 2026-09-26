@@ -11,7 +11,7 @@ GUI での個別作成は Bicep のデプロイ outputs を生成しません。
 
 ## 1. RG と入力値
 
-Azure Portal で専用 RG（既定 `rg-sreagentlab`）を `East US 2` に作成します。
+Azure Portal で専用 RG（既定 `rg-sreagentlab`）を `Japan East` に作成します。
 作成権限と、必要なスコープでロールを割り当てる権限を管理者に確認します。
 SRE Agent の利用可否と VM クォータも先に確認してください。
 
@@ -168,14 +168,10 @@ Windows 拡張機能 `ChaosWindowsAgent` を使用し、次の能力を有効化
 | メモリ | `PhysicalMemoryPressure-1.0`、pressureLevel `90` | 全 VM / 10 分 |
 | IIS | `StopService-1.0`、serviceName `W3SVC` | vm-01 / 5 分 |
 | ディスク IO | `DiskIOPressure-1.1`、pressureMode `PremiumStorageP10IOPS`、targetTempDirectory `C:\ChaosTemp` | vm-01 / 10 分 |
-| NSG | `Microsoft-NetworkSecurityGroup` の `SecurityRule-1.0` | VM 用 NSG / 10 分 |
 
-NSG 実験は Inbound / TCP / Deny、source `10.0.2.0/24`、destination `10.0.1.0/24`、source port `*`、destination port `80`、priority `100`、name `ChaosDenyAppGatewayHTTP` とします。
 実際の型と配列形式は `chaos.bicep` を正本とします。
-SecurityRule 1.0 は既存フローを切断しません。
-実験中の外部編集を避け、手動障害版の `ManualDenyAppGatewayHTTP` と同時実行しないでください。
 
-各実験のシステム割り当て ID を有効にし、[権限表](sre-agent-setup.md#モードと権限)に従って VM の Reader または対象 NSG の Network Contributor を割り当てます。
+各実験のシステム割り当て ID を有効にし、[権限表](sre-agent-setup.md#モードと権限)に従って VM の Reader を割り当てます。
 サブスクリプション全体の Contributor を一括付与する必要はありません。
 現在の公式資料ではこのラボの `Microsoft.Chaos/experiments` モデルを **Experiments (classic)** と分類しています。
 新しい Workspaces の Scenario と同じ API や障害パラメータだと仮定しないでください。

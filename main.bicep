@@ -6,9 +6,9 @@
 
 targetScope = 'resourceGroup'
 
-// East US 2 supports App Gateway v2 and Chaos Studio; verify subscription quota before deployment.
+// Verify service availability and subscription quota in Japan East before deployment.
 @description('Azure region for all regional resources. Verify SRE Agent availability, VM quota, and SKU availability before deployment.')
-param location string = 'eastus2'
+param location string = 'japaneast'
 @description('Resource name prefix: 1-9 characters, starts with a letter, contains only letters, digits, or hyphens, and ends with a letter or digit.')
 @minLength(1)
 @maxLength(9)
@@ -105,9 +105,6 @@ module chaos 'modules/chaos.bicep' = {
     tags: tags
     vmNames: vm.outputs.vmNames
     chaosIdentityClientId: vm.outputs.chaosIdentityClientId
-    nsgName: network.outputs.nsgName
-    appGwSubnetPrefix: network.outputs.appGwSubnetPrefix
-    vmSubnetPrefix: network.outputs.vmSubnetPrefix
   }
   dependsOn: [
     monitoring
@@ -152,19 +149,6 @@ resource experimentReaderRoles 'Microsoft.Authorization/roleAssignments@2022-04-
     principalType: 'ServicePrincipal'
   }
 }]
-resource targetNsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' existing = {
-  name: '${prefix}-nsg'
-}
-resource nsgExperimentRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(targetNsg.id, prefix, 'nsg-experiment', 'NetworkContributor')
-  scope: targetNsg
-  properties: {
-    principalId: chaos.outputs.nsgExperimentPrincipalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4d97b98b-1d4f-4787-a291-c67834d212e7')
-    principalType: 'ServicePrincipal'
-  }
-}
-
 // ===== Deployer access =======================================================
 resource sreAgentAdminRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(resourceGroup().id, deployerPrincipalId, 'e79298df-d852-4c6d-84f9-5d13249d1e55')

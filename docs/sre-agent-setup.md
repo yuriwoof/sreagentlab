@@ -38,7 +38,6 @@ RG 内のリソースが対象であることは、サブスクリプション�
 | 共有 Chaos ID | 各対象 VM の Reader |
 | CPU / メモリ実験 ID | 全対象 VM の Reader |
 | IIS / ディスク IO 実験 ID | 最初の VM の Reader |
-| NSG 実験 ID | 対象 NSG の Network Contributor |
 
 VM Run Command はゲストで高い権限を持つ操作です。
 実行する PowerShell 全文、VM ID、実行者、結果を記録し、サービス確認と必要な復旧以外へ権限を広げないでください。
@@ -76,7 +75,7 @@ NSG フローログの未構成、Application Insights（`<prefix>-sre-appinsigh
 
 ポータルの表示はサービス更新やテナントで変わるため、未確認の設定ラベルを探すのではなく、リソース ID と実際の権限で確認します。
 SRE Agent の利用可能リージョンや利用要件は[公式概要](https://learn.microsoft.com/azure/sre-agent/overview)で確認してください。
-このラボの既定のデプロイ先は `eastus2` です。
+このラボの既定のデプロイ先は `japaneast` です。
 
 ## 手順 2: ライブレポートで状態ダッシュボードを作成
 
@@ -433,7 +432,7 @@ Azure Monitor のアラートを SRE Agent で自動調査するには、[手順
 ```text
 現在のアラートと実験状態を読み取り、原因候補と証拠を示してください。
 対象 ID、変更前後の差分、想定影響、ロールバック、必要最小限の権限を提示して承認を待ってください。
-Chaos 所有の操作は実験停止を優先し、実行中の NSG 実験を外部から編集しないでください。
+Chaos 所有の操作は実験停止を優先し、NSG は ManualDenyAppGatewayHTTP だけを修復対象にしてください。
 承認後の操作と復旧確認結果を記録してください。
 ```
 

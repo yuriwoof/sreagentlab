@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # enable-activity-log.sh – Opt-in subscription Activity Log export (separate RBAC).
-# LOCATION defaults to eastus2; deployment/diagnostic name is deterministic per RG.
+# LOCATION defaults to japaneast; deployment/diagnostic name is deterministic per RG.
 # =============================================================================
 set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"

@@ -159,30 +159,19 @@ W3SVC が Running、ローカル `/health.htm` が HTTP 200、両バックエン
 
 App Gateway サブネットから VM サブネットへの TCP 80 を許可する優先度 200 の規則を確認します。
 優先度 100 の障害規則がない状態から始めます。
-Chaos と手動版のどちらか一方だけを選びます。
 
 ### 障害注入
 
 ```bash
-# Chaos 版: 10 分間の SecurityRule 1.0
-bash scripts/run-chaos.sh start nsg
-```
-
-SRE Agent に手動修復を提案させて承認するデモでは、代わりに次を使用します。
-
-```bash
-# 手動版: Chaos NSG 実験が動作していないときだけ
 bash scripts/break-nsg.sh
 ```
 
-Chaos は `ChaosDenyAppGatewayHTTP`、手動版は `ManualDenyAppGatewayHTTP` を使用します。
-両者の優先度は 100 で競合します。
-実験中に SRE Agent や利用者が NSG を編集すると、実験が失敗することがあります。
+`break-nsg.sh` は優先度 100 の `ManualDenyAppGatewayHTTP` を作成します。
 
 ### 症状確認
 
 新規接続やプローブ失敗が反映されると、Unhealthy が増えてブラウザに 502 が返る可能性があります。
-SecurityRule 1.0 は確立済みフローを切断しないため、即座の切断を期待しないでください。
+確立済みフローの状態やプローブ間隔により、即座に症状が現れない場合があります。
 ブラウザからリクエストを送り、frontend 5xx を観測します。
 SRE Agent が調査するのは Sev1 の Unhealthy アラートです。frontend 5xx アラートは Sev3 のため通知のみです。
 Gateway が生成する 502 は backend 5xx アラートの対象ではありません。
@@ -194,21 +183,12 @@ Gateway が生成する 502 は backend 5xx アラートの対象ではありま
 
 ```text
 NSG の HTTP 規則を読み取り、送信元、宛先、ポート、優先度、規則の所有者を確認してください。
-手動版なら ManualDenyAppGatewayHTTP だけを削除する差分を示して承認を待ってください。
-Chaos 実験が実行中なら外部編集せず、先に実験停止を提案してください。
+ManualDenyAppGatewayHTTP だけを削除する差分を示して承認を待ってください。
 ```
 
 ### 復旧確認
 
-Chaos 版は次で停止し、終了と Chaos 所有規則の撤去を確認します。
-
-```bash
-bash scripts/run-chaos.sh stop nsg
-bash scripts/run-chaos.sh status nsg
-```
-
-手動版は `bash scripts/fix-nsg.sh` で手動規則のみを削除します。
-`fix-nsg.sh` を Chaos 所有規則の削除に流用しません。
+`bash scripts/fix-nsg.sh` で手動規則のみを削除します。
 正常な許可規則の維持、Healthy 数の回復、HTTP 200 を確認します。
 
 ## 5. ディスク IO 圧迫
