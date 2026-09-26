@@ -1,16 +1,16 @@
 # Azure SRE Agent のセットアップ
 
-デプロイ後に、次の 3 つを順に実施します。
+デプロイ後に、次の 5 つを順に実施します。
 
-1. [手順 1: 管理対象リソースと権限の確認](#手順-1-管理対象リソースと権限の確認)
-2. [手順 2: ライブレポートで状態ダッシュボードを作成](#手順-2-ライブレポートで状態ダッシュボードを作成)
-3. [手順 3: Azure Monitor のアラートを受信する](#手順-3-azure-monitor-のアラートを受信する)
+1. [手順 1: 初回オンボーディングで Azure Monitor を接続](#手順-1-初回オンボーディングで-azure-monitor-を接続)
+2. [手順 2: 管理対象リソースと権限の確認](#手順-2-管理対象リソースと権限の確認)
+3. [手順 3: ライブレポートで状態ダッシュボードを作成](#手順-3-ライブレポートで状態ダッシュボードを作成)
+4. [手順 4: 応答プランを作成してアラート受信を確認](#手順-4-応答プランを作成してアラート受信を確認)
+5. [手順 5: 毎朝 9 時 JST の定期タスクを作成](#手順-5-毎朝-9-時-jst-の定期タスクを作成)
 
 ## デプロイされる構成
 
-`main.bicep` は SRE Agent、専用ユーザー割り当てマネージド ID、Log Analytics に接続した Application Insights、ロール割り当てを作成します。
-VM の共有 Chaos ID と SRE Agent の ID は別の用途です。
-VM ごとのシステム割り当て ID は Azure Monitor Agent（AMA）が使用します。
+デプロイした Bicep テンプレートでは、SRE Agent、専用ユーザー割り当てマネージド ID、Log Analytics に接続した Application Insights、ロール割り当てを作成します。
 
 SRE Agent の `knowledgeGraphConfiguration.managedResources` には、デプロイ先 RG の ID を登録します。
 その RG の Windows VM、NSG、Application Gateway、Log Analytics が対象です。
@@ -39,16 +39,26 @@ RG 内のリソースが対象であることは、サブスクリプション�
 | CPU / メモリ実験 ID | 全対象 VM の Reader |
 | IIS / ディスク IO 実験 ID | 最初の VM の Reader |
 
-VM Run Command はゲストで高い権限を持つ操作です。
-実行する PowerShell 全文、VM ID、実行者、結果を記録し、サービス確認と必要な復旧以外へ権限を広げないでください。
+VM Run Command はゲスト OS で Administrator 権限を持つ操作が行えます。
+実行する PowerShell、VM ID、実行者、結果を記録し、サービス確認と必要な復旧以外へ権限を広げないでください。
 NSG 修復は対象 NSG、プローブ修復は対象 Gateway に限定します。
 
-## 手順 1: 管理対象リソースと権限の確認
+## 手順 1: 初回オンボーディングで Azure Monitor を接続
+
+SRE Agent を初めて開くと、オンボーディング画面が表示されます。
+ライブレポートを作成する前に、この画面でインシデント プラットフォームを設定します。
+`main.bicep` ではこの接続を構成しません。
 
 1. 成功した main デプロイの出力 `sreAgentPortalUrl`、または [SRE Agent ポータル](https://aka.ms/sreagent/portal)を開きます。
-2. 作成したエージェントを選び、対象 RG が管理リソースに含まれていることを確認します。
-3. IAM で SRE ID の割り当て先が目的の RG であることを確認します。
-4. チャットで下記の読み取り専用確認を実行します。
+2. 作成したエージェントを選び、オンボーディングを開始します。
+3. インシデント プラットフォームに **Azure Monitor** を選び、接続を保存します。
+   資格情報は不要で、エージェントのマネージド ID で認証します。
+   有効にできるインシデント プラットフォームは 1 つだけです。
+4. "完了してエージェントに移動" を選択しオンボーディングを完了します。
+
+## 手順 2: 管理対象リソースと権限の確認
+
+1. "+ New chat" を選択し、チャットで下記の読み取り専用確認を実行します。
 
 ```text
 管理対象リソースの ID を一覧にしてください。
@@ -61,7 +71,7 @@ NSG 修復は対象 NSG、プローブ修復は対象 Gateway に限定します
 
 ![SRE Agent の応答例: 管理対象リソース ID と取得可能なメトリクスの一覧](./imgs/sreagentcheck.png)
 
-エージェントが「Monitoring Reader が不足している」と回答しても、ロールを追加する前にエラーの種類を確認します。
+上記のプロンプトを実行した際に、エージェントが「Monitoring Reader が不足している」と返答される場合があります。以下にあるようにエージェントが使用するツールが適切なものが選択されなかった可能性もありますので、まずはエラーの種類を確認してください。
 
 | 症状 | 原因 | 対応 |
 |---|---|---|
@@ -69,15 +79,13 @@ NSG 修復は対象 NSG、プローブ修復は対象 Gateway に限定します
 | コード実行サンドボックスで `Please run 'az login'` | サンドボックスの `az` はマネージド ID で認証されない | 権限確認には使わない。上記のツールで確認する |
 | `AuthorizationFailed` | RBAC 不足 | 対象スコープと不足アクションを確認してから最小権限を検討する |
 
-SRE ID には RG の Reader（`*/read`）があるため、メトリクスと診断設定の読み取りに Monitoring Reader は不要です。
-NSG フローログの未構成、Application Insights（`<prefix>-sre-appinsights`）に IIS のテレメトリがないことは、このラボの設計どおりです。
-この Application Insights は SRE Agent 自身のログ用です。
+なお、SRE ID には RG の Reader（`*/read`）があるため、メトリクスと診断設定の読み取りに Monitoring Reader は不要です。
 
 ポータルの表示はサービス更新やテナントで変わるため、未確認の設定ラベルを探すのではなく、リソース ID と実際の権限で確認します。
 SRE Agent の利用可能リージョンや利用要件は[公式概要](https://learn.microsoft.com/azure/sre-agent/overview)で確認してください。
 このラボの既定のデプロイ先は `japaneast` です。
 
-## 手順 2: ライブレポートで状態ダッシュボードを作成
+## 手順 3: ライブレポートで状態ダッシュボードを作成
 
 ### ライブレポートとは
 
@@ -99,7 +107,7 @@ SRE Agent の利用可能リージョンや利用要件は[公式概要](https:/
 | エージェントのデータアクセス | エージェントのマネージド ID には、ラボ RG の Reader と Log Analytics Reader を割り当てています（[sre-agent.bicep](../modules/sre-agent.bicep)）。 |
 | データソース | **Log Analytics コネクタが必要です**。ライブレポートは設定済みのコネクタのツールだけを呼び出します。`main.bicep` では作成しないため、[Log Analytics コネクタを追加する](#log-analytics-コネクタを追加する)の手順で追加します（[コネクタ](https://learn.microsoft.com/azure/sre-agent/connectors)）。 |
 | ゲストのログ | AMA と DCR が `Perf`（CPU、メモリ、ディスク、ネットワーク）と `Event`（Service Control Manager 7036）を LAW に送ります。 |
-| Chaos 実験の履歴（任意） | `AzureActivity` を使う場合は、[定期タスク](scheduled-tasks.md)に記載した `enable-activity-log.sh` でサブスクリプションの Activity Log を LAW に転送します。 |
+| Chaos 実験の履歴（任意） | `AzureActivity` を使う場合は、[手順 5](#手順-5-毎朝-9-時-jst-の定期タスクを作成)に記載した `enable-activity-log.sh` でサブスクリプションの Activity Log を LAW に転送します。 |
 
 レポートは、エージェントに設定済みのコネクタと、そのマネージド ID に付与された権限の範囲でのみデータを取得できます。
 チャットで使える組み込みツールがあっても、コネクタがなければレポートを開くたびにデータを再取得できません。
@@ -109,7 +117,7 @@ SRE Agent の利用可能リージョンや利用要件は[公式概要](https:/
 
 レポートを作成する前に、ラボの LAW（出力 `lawName`、既定は `<prefix>-law`）に接続するコネクタを追加します。
 
-1. エージェントの **Builder** → **コネクタ** を開き、**+ コネクタの追加** を選びます。
+1. エージェントの **ビルダー** → **コネクタ** を開き、**+ コネクタの追加** を選びます。
 2. **テレメトリ** タブで **Log Analytics ワークスペース** を選び、**次へ** を選びます。
 
    ![コネクタの選択で Log Analytics ワークスペースを選ぶ](./imgs/sreagentconnector1.png)
@@ -201,7 +209,7 @@ Application Gateway <prefix>-appgw です。既定の期間は直近 1 時間と
 5. Chaos 実験の開始履歴の表:
    AzureActivity テーブルの OperationNameValue "Microsoft.Chaos/experiments/start/action"、
    ResourceGroup が <RG> のもの。テーブルがない、または空の場合はその旨を表示してください
-6. ラボ RG の Azure Monitor アラートの表（発報中と解消済み、重大度、対象、時刻）
+6. ラボ RG の Azure Monitor アラートの一覧（発報中と解消済み、重大度、対象、時刻）
 
 データはコネクタとツールの結果だけで表示し、モデルによる要約セクションは作成しないでください。
 リソースを変更するボタンやアクションは追加せず、読み取り専用のツールだけを使用してください。
@@ -250,15 +258,6 @@ Application Gateway <prefix>-appgw です。既定の期間は直近 1 時間と
 AMA の `Perf` / `Event` と Activity Log は、取り込みに数分かかることがあります。
 再読み込みしても、データの到着が遅れている場合は反映されません。
 
-### 共有、エクスポート、削除
-
-- **共有**: **レポートへのリンクをコピー** を選びます。共有先には、エージェントに対する SRE Agent Standard User または SRE Agent Administrator のロールが必要です。
-- **エクスポート**: オーバーフロー メニューの **HTML のダウンロード** で、静的なスナップショットを保存します。ファイルにはリソース名や IP アドレスが含まれるため、取り扱いに注意します。
-- **削除**: オーバーフロー メニューの **削除** で完全に削除します。SRE Agent Administrator のロールが必要です。
-
-レポートはエージェントに保存されます。
-`cleanup.sh` でラボ RG を削除するとエージェントも削除されるため、残したいレポートは事前に HTML で保存します。
-ダウンロードした HTML はローカルファイルのため、`cleanup.sh` では削除されません。
 
 ### 使用量とコスト
 
@@ -345,30 +344,13 @@ AzureActivity
 画面の項目名は日本語版ドキュメントの訳語に基づきます。
 実際の表示がプレビュー中に変わる場合があるため、ポータルの表示を優先してください。
 
-## 手順 3: Azure Monitor のアラートを受信する
-
-Azure Monitor のアラートが発報しても、インシデント プラットフォームを接続していないと SRE Agent は受信しません。
-エージェント作成時のオンボーディングで Azure Monitor を選ばなかった場合も、後から次の手順で接続できます。
-`main.bicep` はこの接続を構成しません。
-
-### Azure Monitor を接続する
-
-1. エージェントの **Incidents** → **Triggers + response plans**（または **Builder** → **インシデント プラットフォーム**）を開きます。
-2. **Connect an incident platform** を選び、**Azure Monitor** を選んで保存します。
-   資格情報は不要で、エージェントのマネージド ID で認証します。
-   有効にできるインシデント プラットフォームは 1 つだけです。PagerDuty や ServiceNow を接続済みの場合は切り替わります。
-3. **Azure Monitor connected** と表示されることを確認します。
-
-接続しただけでは、アラートは調査されません。
-SRE Agent は届いたアラートを応答プランと照合し、一致したものだけを調査します。
-
-### 応答プランを作成する
+## 手順 4: 応答プランを作成してアラート受信を確認
 
 接続時に既定の応答プラン `quickstart_handler`（Sev0～Sev2、自律モード）が作られる場合があります。
 ただし、オンボーディング後に接続した場合などは作られないことがあります。
 このラボでは、承認付き修復を実演するため、次の手順で専用の応答プランを作成します。
 
-1. **インシデント** → **Triggers & response plans** で、**+ 対応計画の作成**（プランがない場合は **Add an incident response plan**）を選びます。
+1. **インシデント** → **Triggers & response plans** で、**対応計画を追加する** を選択します。
 2. **ステップ 1: 対応プラン** で次を設定し、**次へ** を選びます。
 
    | 項目 | 設定 |
@@ -385,47 +367,110 @@ SRE Agent は届いたアラートを応答プランと照合し、一致した�
 4. **作成** を選び、プランの状態が **オン**、モードが **レビュー** であることを確認します。
 5. `quickstart_handler` がある場合は、二重に処理されないよう、**表ビュー** で削除するか **無効にする** で無効にします。
 
-### 受信を確認する
-
-1. アラートを発報させるか、発報中のアラートがある状態で数分待ちます。
-   スキャナーは 1 分ごとに確認し、初回は過去 1 日分を読み込みます。同じルールの繰り返し発報は 1 つのスレッドにまとめられます。
-2. チャットにインシデント カードが表示され、Azure Monitor のアラートの状態が `New` から `Acknowledged` に変わることを確認します。
-3. Review モードでは、エージェントが調査結果と修復案を提示し、承認を待ちます。
-
-アラートが表示されない場合は、次を確認します。
-
-| 確認項目 | 内容 |
-|---|---|
-| アラートが発報しているか | Azure Monitor の **アラート** 一覧で、対象 RG のアラートが発生しているか |
-| 応答プランがあるか | **Triggers + response plans** に、状態が **On** のプランがあるか |
-| 応答プランの対象か | アラートの重大度とタイトルがプランの条件に合うか。**Incidents preview** で一覧に出るか |
-| アラートの状態 | `New` のままなら未取り込み。応答プランの有無と条件を確認する |
-| マネージド ID の権限 | 公式ドキュメントでは、エージェントのマネージド ID にサブスクリプションの **Monitoring Contributor** が必要とされています。`main.bicep` は RG スコープのロールしか割り当てないため、不足していれば管理者が割り当てます |
-
 詳細は[Azure Monitor アラート](https://learn.microsoft.com/azure/sre-agent/azure-monitor-alerts)、[インシデント応答の自動化](https://learn.microsoft.com/azure/sre-agent/automate-incidents)、[インシデント応答プラン](https://learn.microsoft.com/azure/sre-agent/incident-response-plans)を参照してください。
 
-## アラートとインシデント対応
+## 手順 5: 毎朝 9 時 JST の定期タスクを作成
 
-`monitoring.bicep` は次の監視を作成します。
+### 対象と権限の準備
 
-| 対象 | 条件 / データソース |
-|---|---|
-| 各 VM の CPU | Percentage CPU の 5 分平均 > 60% |
-| 各 VM の OS ディスク | IOPS 消費率の 5 分平均 > 90%、キュー深度の 5 分平均 > 10 |
-| Cached IOPS | 5 分平均 > 90%。caching=None ではデータ欠損があり得る参考指標 |
-| メモリ | `Perf` の Available Bytes の 5 分平均 < 3 GiB |
-| IIS 停止 | `Event` の SCM 7036、W3SVC / World Wide Web Publishing Service の stopped |
-| Gateway | UnhealthyHostCount の 5 分平均 >= 1（Sev1）、backend 5xx の 5 分合計 > 0（Sev1）、frontend 5xx の 5 分合計 > 0（Sev3） |
+Azure SRE Agent の **Scheduled tasks** で、コストと操作履歴を読み取り専用で報告するタスクを 2 つ作成します。
+これはエージェントポータルの機能であり、ローカル CLI のスケジューラーやライブレポートの再読み込みとは別です。
+詳細は [Create and edit scheduled tasks](https://learn.microsoft.com/azure/sre-agent/create-scheduled-task) を確認してください。
 
-IIS イベントの状態文字列は、このラボで使用する英語 Windows イメージを前提にしています。
-NSG やプローブの誤設定では、UnhealthyHostCount と frontend 5xx が同じ原因でほぼ同時に発報します。
-別々のインシデントとして二重に調査・修復されないよう、原因に近い UnhealthyHostCount を Sev1、症状である frontend 5xx を Sev3 にしています。
-frontend 5xx はメール通知とライブレポートでの確認に使い、応答プランの対象には含めません。
-App Gateway の診断設定は `AllMetrics` のみであり、アクセスログやファイアウォールログを追加する必要はありません。
-SRE Agent のライブレポートでは、Gateway の 5xx の内訳などディメンション付きの値を Azure Monitor メトリクスから取得します（`AzureMetrics` テーブルにはディメンションが含まれません）。
+管理対象はラボ RG の全 VM と Application Gateway を含みます。
+RG の管理リソース指定だけでは、サブスクリプション全体の操作や課金データの読み取り権限は得られません。
 
-Azure Monitor のアラートを SRE Agent で自動調査するには、[手順 3](#手順-3-azure-monitor-のアラートを受信する)の接続が必要です。
-連携が未設定でも、チャットから対象アラートと期間を指定して調査できます。
+| 情報 | 取得元 | 別途確認する権限 |
+|---|---|---|
+| 現在の構成と VM 状態 | Azure Resource Manager / Azure Monitor | 対象 RG の Reader 等 |
+| 操作履歴 | Activity Log、または LAW の `AzureActivity` | 取得先とスコープの読み取り権限 |
+| LAW への Activity Log エクスポート設定 | サブスクリプションの診断設定 | 当該スコープの診断設定作成権限。管理者が任意で設定 |
+| 費用 | Cost Management の API / 対応するコネクター | 対象スコープの Cost Management Reader、必要に応じて契約に対応する課金スコープの読み取り権限 |
+
+**AzureActivity から利用料金は取得できません。**
+Cost Management の認証、API アクセス、課金スコープを別途確認します。
+Billing reader などの権限は契約と課金スコープによって異なるため、[コストへのアクセス割り当て](https://learn.microsoft.com/azure/cost-management-billing/costs/assign-access-acm-data)を確認してください。
+不足を理由に SRE Agent へサブスクリプションの Owner / Contributor を自動追加しません。
+
+費用はリアルタイムではありません。
+[Cost Management のデータ仕様](https://learn.microsoft.com/azure/cost-management-billing/costs/understand-cost-mgt-data)に従い、更新遅延、未確定値、契約ごとの可用性を報告に含めます。
+過去 24 時間の完全な費用が得られないときは、利用可能な日次データの範囲と欠損を明示します。
+
+### ポータルでの作成
+
+1. 対象エージェントを開き、サイドバーの **オートメーション** → **作成 (スケジュールされたタスク)** を選びます。
+3. **タスク名** と **タスクの詳細** に、下記のタスク名とプロンプトを入力します。
+4. **頻度** を **カスタム cron** にし、**Cron expression (UTC)** に `0 0 * * *` を指定します。
+5. **応答サブエージェント** はメインエージェントを使用する場合は空欄にします。
+6. **エージェント自律性レベル** は既定の Autonomous のままにせず **Review** を選びます。
+7. デモ用には **実行制限を設定する** や終了条件を必要に応じて設定し、**タスクの作成** を選びます。
+8. 一覧の **Task status** が **On**、**Next run** が意図した時刻であることを確認します。
+
+
+### タスク 1: 日次コスト報告
+
+Task name の例は `Lab daily cost report` です。
+以下の `<RG>` は、実際に使用する RG 名に置き換えてください。
+
+```text
+対象 RG は <RG> です。読み取り専用で日次コスト報告を作成してください。
+実行予定は毎朝 9 時 JST（UTC 00:00）です。
+
+Cost Management の API または利用可能な認可済みコネクターで、
+過去 24 時間と過去 7 日間の費用を取得し、リソース種別とリソース別に整理してください。
+前の 24 時間との比較と 7 日間の日次傾向を示し、前日比 20% 以上の増加を明示してください。
+比較対象が 0 の場合は無理に増加率を計算せず、新規費用として示してください。
+データが日次粒度や更新遅延で不完全な場合は、実際の対象期間、最終取得時刻、欠損を明示してください。
+費用の種類（実績/償却など）、通貨、タイムゾーンをそろえて比較してください。
+
+停止忘れの可能性がある VM、未使用の可能性がある Public IP を現在の構成と利用状況から候補化してください。
+Application Gateway と NAT Gateway の Public IP は用途を照合し、未使用と即断しないでください。
+VM 停止後も残る Gateway、NAT、ディスク、Public IP の費用に触れてください。
+
+金額の根拠となるスコープ、API、集計期間を付けてください。
+AzureActivity から費用を推定せず、権限やデータが不足していれば未取得と報告してください。
+停止、削除、サイズ変更、権限変更は実行せず、対応案と期待する効果だけを提示してください。
+```
+
+### タスク 2: 日次操作履歴報告
+
+Task name の例は `Lab daily activity report` です。
+対象 RG は <RG> です。読み取り専用で日次操作履歴報告を作成してください。
+
+```text
+対象 RG は <RG> です。過去 24 時間の操作履歴を読み取り専用で報告してください。
+NSG 規則、Application Gateway、VM の起動/停止/割り当て解除/再起動、
+RBAC ロール割り当て、リソース削除を抽出してください。
+
+各項目に操作名、対象の完全なリソース ID、ResourceGroup、Caller、
+UTC と JST の時刻、結果/状態、CorrelationId を含めてください。
+Started/Accepted と Succeeded/Failed を同じものとして数えず、
+相関 ID を用いて一連の操作を整理してください。
+取得できる場合は変更前後の差分と影響候補も示し、取得できない差分は推測で補わないでください。
+
+操作名と状態の大文字小文字の差を吸収し、ラボ RG 以外の情報を報告に混ぜないでください。
+エクスポートの開始前、取り込み遅延、テーブル未作成、権限不足は未取得として区別してください。
+想定外の変更があれば警告し、疑わしい操作も Caller だけで意図を断定せず、根拠と確認先を示してください。
+リソースや権限は変更せず、費用を AzureActivity から計算しないでください。
+```
+
+RG より上位で付与された RBAC は、RG のフィルターだけでは検出できない場合があります。
+必要なら別途承認されたスコープで監査し、このタスクだけでサブスクリプション全体を監査したと扱わないでください。
+
+### 実行結果、変更、終了
+
+最初の予定実行後、タスク名を選んで実行履歴を開きます。
+公式手順では各実行が会話スレッドを作成し、計画、使用ツール、結果、失敗時のエラーを確認できます。
+コスト API と Activity Log の取得先が正しいこと、結果に時刻と根拠があること、書き込み操作をしていないことを確認してください。
+3 回連続失敗すると Failed になるため、単に次回まで放置せず取得権限と接続先を確認します。
+
+編集時はタスクを選択して **編集**、内容を変更して **保存** を選びます。
+
+任意のサブスクリプション診断設定は RG 削除では消えません。
+`cleanup.sh` は `sreagentlab-activity-${RESOURCE_GROUP}` の設定名と送信先 LAW がこのデモ用であることを照合し、その設定だけを RG より先に削除します。
+検査権限がない場合や送信先が異なる場合は停止するため、管理者と調整してください。
+別名で手動作成した診断設定は、管理者が用途を確認して別途削除します。
+共有設定や他のタスクは削除しません。
 
 ## 安全な修復の実演
 
@@ -450,14 +495,15 @@ SRE Agent にサブスクリプションの Contributor や Owner を暗黙に�
 Cost Management の取得には別の API と、対象のコストスコープに合った読み取り権限が必要です。
 Azure RBAC スコープの Cost Management Reader と、契約に応じた課金スコープの Billing reader 等の権限は、管理者が別途確認します。
 RG の管理リソース指定だけで、請求アカウントの費用が読めるとは限りません。
-[定期タスク](scheduled-tasks.md)では、利用できないデータを未取得として報告します。
+[手順 5](#手順-5-毎朝-9-時-jst-の定期タスクを作成)では、利用できないデータを未取得として報告します。
 
 ## 関連手順と公式ドキュメント
 
 - [8 シナリオ](demo-scenario.md)
-- [定期タスク](scheduled-tasks.md)
 - [ポータルによる Windows 構成](azure-portal-manual-setup.md)
 - [Azure SRE Agent のライブ レポート (プレビュー)](https://learn.microsoft.com/azure/sre-agent/live-reports)
+- [Azure SRE Agent の定期タスクの作成と編集](https://learn.microsoft.com/azure/sre-agent/create-scheduled-task)
+- [Azure SRE Agent の定期タスクの概要と状態](https://learn.microsoft.com/azure/sre-agent/scheduled-tasks)
 - [Azure SRE Agent のコネクタ](https://learn.microsoft.com/azure/sre-agent/connectors)
 - [ユーザーのロールとアクセス許可](https://learn.microsoft.com/azure/sre-agent/user-roles)
 - [ツールのアクセス ポリシー](https://learn.microsoft.com/azure/sre-agent/tool-access-policies)

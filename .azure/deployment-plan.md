@@ -10,7 +10,7 @@
 |---|---|---|
 | 1 | main.bicep、main.parameters.json、modules/network.bicep、modules/vm.bicep、modules/appgw.bicep、scripts/setup-iis.ps1 | Windows VM 配列、IIS、App Gateway、任意 RDP、共通タグ、明示的な NAT 外向き通信。既存 monitoring/chaos の Windows 化と複数 VM の接続も含む |
 | 2 | modules/chaos.bicep、modules/monitoring.bicep、modules/activity-log.bicep、modules/sre-agent.bicep、main.bicep | 公式フォールト、VM スコープ RBAC、NSG スコープ RBAC、Windows DCR、VM/App GW アラート、独立したサブスクリプション診断設定 |
-| 3 | scripts/*.sh、README.md、docs/demo-scenario.md、docs/runbook-template.md、docs/sre-agent-setup.md、docs/azure-portal-manual-setup.md、docs/scheduled-tasks.md、.gitignore、tests/ | 入力秘匿、出力からのリソース解決、start/status/stop、障害と復旧の対、限定されたクリーンアップ、日本語手順、スクリプトと生成 ARM の検証 |
+| 3 | scripts/*.sh、README.md、docs/demo-scenario.md、docs/runbook-template.md、docs/sre-agent-setup.md、docs/azure-portal-manual-setup.md、.gitignore、tests/ | 入力秘匿、出力からのリソース解決、start/status/stop、障害と復旧の対、限定されたクリーンアップ、日本語手順、スクリプトと生成 ARM の検証 |
 
 各フェーズ終了時に `az bicep build --file main.bicep` を実行する。
 既存 Linux VM のインプレース OS 変更は行わず、新規デモ環境へのデプロイを前提とする。

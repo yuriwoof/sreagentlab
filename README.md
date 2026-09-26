@@ -13,14 +13,13 @@ Azure SRE Agent と Chaos Studio を使い、Windows Server 2022 の IIS を調�
 1. [前提条件とパラメータ](#前提条件とパラメータ)を確認
 2. [Deploy to Azure でデプロイ](#1-deploy-to-azure-でデプロイ)し、Web ページの表示を確認
 3. [SRE Agent のセットアップ](docs/sre-agent-setup.md)で管理対象リソースと権限を確認し、検証時に使う状態ダッシュボード（ライブレポート）を作成して、Azure Monitor のアラート受信を設定
-4. 任意: シナリオ 7 を行う場合は[定期タスク](docs/scheduled-tasks.md)の権限と Activity Log 転送を準備
+4. 任意: シナリオ 7 を行う場合は[SRE Agent セットアップの定期タスク手順](docs/sre-agent-setup.md#手順-5-毎朝-9-時-jst-の定期タスクを作成)で権限と Activity Log 転送を準備
 
 ### 2. 検証実施手順
 
-1. [検証実施手順](#検証実施手順)で障害注入コマンドの使い方を確認
-2. [8 シナリオのデモ手順](docs/demo-scenario.md)に沿って、1 シナリオずつ障害注入・調査・復旧を実施
-3. 承認付き修復は[Runbook](docs/runbook-template.md)に従って実施・記録
-4. 終了後は[監視とコストの注意](#監視とコストの注意)に従ってリソースを削除
+1. [8 シナリオのデモ手順](docs/demo-scenario.md)に沿って、1 シナリオずつ障害注入・調査・復旧を実施
+2. 承認付き修復は[Runbook](docs/runbook-template.md)に従って実施・記録
+3. 終了後は[監視とコストの注意](#監視とコストの注意)に従ってリソースを削除
 
 ### 3. 参考資料
 
@@ -109,31 +108,40 @@ IIS ページにはホスト名と VM ごとに異なる背景色が表示され
 繰り返し更新して両 VM の応答を確認してください。
 Cookie affinity は無効ですが、リクエストごとに必ず交互に表示される保証はありません。
 
-### 2. SRE Agent の設定
+#### 任意: Activity Log を Log Analytics に転送
 
-1. デプロイ出力 `sreAgentPortalUrl` を開き、[SRE Agent のセットアップ](docs/sre-agent-setup.md)に従って次の 3 つを実施します。
-   - 手順 1: 管理対象リソースと権限の確認
-   - 手順 2: ライブレポートで状態ダッシュボード「SRE Lab Live Status」を作成（検証中の症状確認に使用）
-   - 手順 3: Azure Monitor をインシデント プラットフォームとして接続し、Sev1/Sev2 を対象とする Review モードの応答プランを作成（アラートを自動で受信・調査）
-2. シナリオ 7 を行う場合は、[定期タスク](docs/scheduled-tasks.md)の権限と Activity Log 転送を準備します。
+ライブレポートや定期タスクで Chaos 実験の開始履歴や構成変更を参照する場合は、環境のデプロイ後に Activity Log の転送を有効にします。
+通常のデプロイには含まれないオプションです。
 
-## 検証実施手順
-
-[8 シナリオのデモ手順](docs/demo-scenario.md)に沿って、障害注入、SRE Agent による調査、承認付き復旧を 1 シナリオずつ実施します。
-障害注入はリポジトリのルートから Bash と Azure CLI で実行します（Azure Cloud Shell も利用可能）。
-`RESOURCE_GROUP` を指定しない場合、スクリプトはサブスクリプション内のラボの RG（Chaos 実験 `<prefix>-cpu-pressure-exp` がある RG）を自動検出します。
-ラボを複数の RG にデプロイしている場合は、`RESOURCE_GROUP` で対象を指定してください。
+この操作には Bash、Azure CLI、Python 3 と、対象サブスクリプションで診断設定を作成できる権限が必要です。
+`az login` 後、リポジトリのルートで実行してください。
 
 ```bash
-# export RESOURCE_GROUP="<デプロイ先の RG>"   # 複数のラボがある場合のみ
-bash scripts/run-chaos.sh cpu          # start cpu の短縮形
-bash scripts/run-chaos.sh status cpu
-bash scripts/run-chaos.sh stop cpu
+bash scripts/enable-activity-log.sh
 ```
 
-`cpu` を `memory`、`iis`、`diskio` に置き換えて使用できます。
-承認付き修復の進め方と記録項目は[Runbook](docs/runbook-template.md)を参照してください。
-検証後は[監視とコストの注意](#監視とコストの注意)の手順でリソースを削除します。
+ラボのリソースグループが複数ある場合や既定名以外の場合は、対象を明示します。
+
+```bash
+RESOURCE_GROUP=<RG 名> SUBSCRIPTION_ID=<サブスクリプション ID> bash scripts/enable-activity-log.sh
+```
+
+スクリプトは成功した main デプロイの出力から LAW を特定し、サブスクリプションの Activity Log をその LAW に送る診断設定を作成します。
+転送前の履歴は取り込まれず、反映には数分かかる場合があります。また、LAW のデータ取り込み費用が発生する可能性があります。
+このため、シナリオ 7 または `AzureActivity` を使うライブレポートを実施する場合だけ有効にしてください。
+
+診断設定はラボ RG の外にあるため、RG を直接削除しても残ります。
+終了時は `scripts/cleanup.sh` を使用すると、このラボ用の設定名と送信先 LAW が一致する場合に限り、診断設定を先に削除します。
+権限とデータの扱いは[SRE Agent セットアップの定期タスク手順](docs/sre-agent-setup.md#手順-5-毎朝-9-時-jst-の定期タスクを作成)を確認してください。
+
+### 2. SRE Agent の設定
+
+1. デプロイ出力 `sreAgentPortalUrl` を開き、[SRE Agent のセットアップ](docs/sre-agent-setup.md)に従って設定します。
+2. 初回オンボーディングで Azure Monitor を接続します。
+3. 管理対象リソースと権限を確認します。
+4. ライブレポートで状態ダッシュボード「SRE Lab Live Status」を作成します。
+5. Sev1/Sev2 を対象とする Review モードの応答プランを作成します。
+6. シナリオ 7 を行う場合は、毎朝 9 時 JST の定期タスクを作成します。
 
 ## 監視とコストの注意
 
@@ -144,7 +152,7 @@ App Gateway の診断設定は `AllMetrics` のみで、アクセスログなど
 レポートは最大 5 分間キャッシュされた結果を表示する場合があるため、デモ中は **再読み込み** を選びます。
 レポートの作成と更新は AAU を消費します。データ取得だけの再読み込みは AAU を消費しませんが、モデルによる要約を含めると再読み込みのたびに消費します。
 実験開始履歴の `AzureActivity` は、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。
-手順と権限は[SRE Agent のセットアップ](docs/sre-agent-setup.md)と[定期タスク](docs/scheduled-tasks.md)を参照してください。
+手順と権限は[SRE Agent のセットアップ](docs/sre-agent-setup.md)を参照してください。
 
 VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディスクなどの料金は継続します。
 料金はリージョンと利用時間で変わるため、固定の合計金額を前提にしないでください。
@@ -229,5 +237,5 @@ scripts/
 tests/test_scripts.py / tests/test_templates.py
 docs/
   demo-scenario.md / sre-agent-setup.md / runbook-template.md
-  azure-portal-manual-setup.md / scheduled-tasks.md
+  azure-portal-manual-setup.md
 ```
