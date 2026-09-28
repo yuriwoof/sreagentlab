@@ -3,7 +3,7 @@
 ## 共通の準備
 
 [README](../README.md)の構成を専用 RG にデプロイし、[SRE Agent](sre-agent-setup.md)を開きます。
-デモの前に、SRE Agent のライブレポート「SRE Lab Live Status」を作成しておきます（[ライブレポート](sre-agent-setup.md#手順-2-ライブレポートで状態ダッシュボードを作成)）。
+デモの前に、SRE Agent のライブレポート「SRE Lab Live Status」を作成しておきます（[ライブレポート](sre-agent-setup.md#手順-3-ライブレポートで状態ダッシュボードを作成)）。
 各シナリオの「症状確認」では、このライブレポートをダッシュボードとして使用します。
 
 コマンドはリポジトリのルートから Bash で実行します。
@@ -307,7 +307,7 @@ RG 削除前に必要な実行結果を保存します。
 
 障害は注入しません。
 [Log Analytics コネクタ](sre-agent-setup.md#log-analytics-コネクタを追加する)が **Connected** であることを確認します。
-[ライブレポート手順](sre-agent-setup.md#手順-2-ライブレポートで状態ダッシュボードを作成)に従い、**ライブ レポート** → **+ 新しいレポート** を選び、プロンプト例 1 で「SRE Lab Live Status」を作成します。
+[ライブレポート手順](sre-agent-setup.md#手順-3-ライブレポートで状態ダッシュボードを作成)に従い、**ライブ レポート** → **+ 新しいレポート** を選び、プロンプト例 1 で「SRE Lab Live Status」を作成します。
 使用するツールの確認では、読み取り専用のツールだけを承認します。
 障害デモ中に比較したい場合は、プロンプト例 2 で「SRE Lab Incident Timeline」も作成します。
 
