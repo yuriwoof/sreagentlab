@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "4815873680774477166"
+      "templateHash": "15471861424037774"
     }
   },
   "parameters": {
@@ -1090,7 +1090,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "3531774983822370199"
+              "templateHash": "17233873661798842485"
             }
           },
           "parameters": {
@@ -1249,7 +1249,7 @@
             },
             "law": {
               "type": "Microsoft.OperationalInsights/workspaces",
-              "apiVersion": "2025-02-01",
+              "apiVersion": "2023-09-01",
               "name": "[format('{0}-law', parameters('prefix'))]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
@@ -1262,7 +1262,7 @@
             },
             "eventTable": {
               "type": "Microsoft.OperationalInsights/workspaces/tables",
-              "apiVersion": "2025-02-01",
+              "apiVersion": "2022-10-01",
               "name": "[format('{0}/{1}', format('{0}-law', parameters('prefix')), 'Event')]",
               "properties": {
                 "retentionInDays": 30
@@ -1273,7 +1273,7 @@
             },
             "perfTable": {
               "type": "Microsoft.OperationalInsights/workspaces/tables",
-              "apiVersion": "2025-02-01",
+              "apiVersion": "2022-10-01",
               "name": "[format('{0}/{1}', format('{0}-law', parameters('prefix')), 'Perf')]",
               "properties": {
                 "retentionInDays": 30
