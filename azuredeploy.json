@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "475025590011735472"
+      "templateHash": "2051840780591447553"
     }
   },
   "parameters": {
@@ -1102,7 +1102,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "11042712894344648001"
+              "templateHash": "6121589163243424921"
             }
           },
           "parameters": {
@@ -1501,7 +1501,7 @@
                 "evaluationFrequency": "PT1M",
                 "windowSize": "PT5M",
                 "scopes": [
-                  "[resourceGroup().id]"
+                  "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('lawName'))]"
                 ],
                 "targetResourceTypes": [
                   "Microsoft.Compute/virtualMachines"
@@ -1531,6 +1531,7 @@
               "dependsOn": [
                 "actionGroup",
                 "dcrAssociations",
+                "law",
                 "perfTable"
               ]
             },
@@ -1549,7 +1550,7 @@
                 "evaluationFrequency": "PT1M",
                 "windowSize": "PT5M",
                 "scopes": [
-                  "[resourceGroup().id]"
+                  "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('lawName'))]"
                 ],
                 "targetResourceTypes": [
                   "Microsoft.Compute/virtualMachines"
@@ -1578,7 +1579,8 @@
               "dependsOn": [
                 "actionGroup",
                 "dcrAssociations",
-                "eventTable"
+                "eventTable",
+                "law"
               ]
             },
             "appGwAlerts": {

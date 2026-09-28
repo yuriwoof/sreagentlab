@@ -153,7 +153,7 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual((memory["operator"], memory["threshold"]), ("LessThan", 3 * 1024 ** 3))
         for name in ("memoryAlert", "iisStopAlert"):
             self.assertTrue(resources[name]["properties"]["skipQueryValidation"])
-            self.assertEqual(resources[name]["properties"]["scopes"], ["[resourceGroup().id]"])
+            self.assertEqual(resources[name]["properties"]["scopes"], ["[resourceId('Microsoft.OperationalInsights/workspaces', parameters('lawName'))]"])
         self.assertEqual(metrics["OS Disk IOPS Consumed Percentage"]["threshold"], 90)
         self.assertEqual(metrics["OS Disk Queue Depth"]["threshold"], 10)
         self.assertEqual(resources["vmAlerts"]["properties"]["windowSize"], "PT5M")

@@ -312,10 +312,8 @@ resource memoryAlert 'Microsoft.Insights/scheduledQueryRules@2025-01-01-preview'
     skipQueryValidation: true
     evaluationFrequency: 'PT1M'
     windowSize: 'PT5M'
-    // Resource-centric scope: a workspace scope fails with 'workspace could not be found'
-    // while a newly created workspace is still propagating.
     scopes: [
-      resourceGroup().id
+      law.id
     ]
     targetResourceTypes: [
       'Microsoft.Compute/virtualMachines'
@@ -372,10 +370,8 @@ resource iisStopAlert 'Microsoft.Insights/scheduledQueryRules@2025-01-01-preview
     skipQueryValidation: true
     evaluationFrequency: 'PT1M'
     windowSize: 'PT5M'
-    // Resource-centric scope: a workspace scope fails with 'workspace could not be found'
-    // while a newly created workspace is still propagating.
     scopes: [
-      resourceGroup().id
+      law.id
     ]
     targetResourceTypes: [
       'Microsoft.Compute/virtualMachines'
