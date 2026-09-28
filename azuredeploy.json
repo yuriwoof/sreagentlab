@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "9105194424144742856"
+      "templateHash": "14657587813854455781"
     }
   },
   "parameters": {
@@ -1090,7 +1090,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "16311212834550247158"
+              "templateHash": "7149306328314078836"
             }
           },
           "parameters": {
@@ -1483,7 +1483,7 @@
                 "evaluationFrequency": "PT1M",
                 "windowSize": "PT5M",
                 "scopes": [
-                  "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]"
+                  "[resourceGroup().id]"
                 ],
                 "targetResourceTypes": [
                   "Microsoft.Compute/virtualMachines"
@@ -1513,7 +1513,6 @@
               "dependsOn": [
                 "actionGroup",
                 "dcrAssociations",
-                "law",
                 "perfTable"
               ]
             },
@@ -1532,7 +1531,7 @@
                 "evaluationFrequency": "PT1M",
                 "windowSize": "PT5M",
                 "scopes": [
-                  "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]"
+                  "[resourceGroup().id]"
                 ],
                 "targetResourceTypes": [
                   "Microsoft.Compute/virtualMachines"
@@ -1561,8 +1560,7 @@
               "dependsOn": [
                 "actionGroup",
                 "dcrAssociations",
-                "eventTable",
-                "law"
+                "eventTable"
               ]
             },
             "appGwAlerts": {
