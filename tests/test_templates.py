@@ -148,6 +148,11 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(resources["vmAlerts"]["properties"]["windowSize"], "PT5M")
         for metric in monitoring["variables"]["appGwMetricDefinitions"][1:]:
             self.assertEqual(metric["dimensions"], [{"name": "HttpStatusGroup", "operator": "Include", "values": ["5xx"]}])
+        app_gw_metrics = {m["suffix"]: m for m in monitoring["variables"]["appGwMetricDefinitions"]}
+        self.assertEqual(
+            (app_gw_metrics["frontend-5xx"]["operator"], app_gw_metrics["frontend-5xx"]["threshold"]),
+            ("GreaterThan", 2),
+        )
         severities = {m["suffix"]: m["severity"] for m in monitoring["variables"]["appGwMetricDefinitions"]}
         self.assertEqual(severities, {"unhealthy-host": 1, "frontend-5xx": 3, "backend-5xx": 1})
         diagnostic = resources["appGwDiagnostics"]["properties"]
