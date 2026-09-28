@@ -305,6 +305,8 @@ resource memoryAlert 'Microsoft.Insights/scheduledQueryRules@2025-01-01-preview'
     description: 'Guest available memory averages below 3 GiB for 5 minutes (Windows Perf).'
     severity: 2
     enabled: true
+    // Query validation can transiently miss a workspace that was just updated in this deployment.
+    skipQueryValidation: true
     evaluationFrequency: 'PT1M'
     windowSize: 'PT5M'
     scopes: [
@@ -361,6 +363,8 @@ resource iisStopAlert 'Microsoft.Insights/scheduledQueryRules@2025-01-01-preview
     description: 'IIS W3SVC entered the stopped state (System / Service Control Manager / event 7036).'
     severity: 1
     enabled: true
+    // Query validation can transiently miss a workspace that was just updated in this deployment.
+    skipQueryValidation: true
     evaluationFrequency: 'PT1M'
     windowSize: 'PT5M'
     scopes: [

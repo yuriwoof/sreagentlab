@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "15471861424037774"
+      "templateHash": "9105194424144742856"
     }
   },
   "parameters": {
@@ -1090,7 +1090,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "17233873661798842485"
+              "templateHash": "16311212834550247158"
             }
           },
           "parameters": {
@@ -1479,6 +1479,7 @@
                 "description": "Guest available memory averages below 3 GiB for 5 minutes (Windows Perf).",
                 "severity": 2,
                 "enabled": true,
+                "skipQueryValidation": true,
                 "evaluationFrequency": "PT1M",
                 "windowSize": "PT5M",
                 "scopes": [
@@ -1527,6 +1528,7 @@
                 "description": "IIS W3SVC entered the stopped state (System / Service Control Manager / event 7036).",
                 "severity": 1,
                 "enabled": true,
+                "skipQueryValidation": true,
                 "evaluationFrequency": "PT1M",
                 "windowSize": "PT5M",
                 "scopes": [
