@@ -12,8 +12,9 @@ Azure SRE Agent と Chaos Studio を使い、Windows Server 2022 の IIS を調�
 
 1. [前提条件とパラメータ](#前提条件とパラメータ)を確認
 2. [Deploy to Azure でデプロイ](#1-deploy-to-azure-でデプロイ)し、Web ページの表示を確認
-3. [SRE Agent のセットアップ](docs/sre-agent-setup.md)で管理対象リソースと権限を確認し、検証時に使う状態ダッシュボード（ライブレポート）を作成して、Azure Monitor のアラート受信を設定
-4. 任意: シナリオ 7 を行う場合は[SRE Agent セットアップの定期タスク手順](docs/sre-agent-setup.md#手順-5-毎朝-9-時-jst-の定期タスクを作成)で権限と Activity Log 転送を準備
+3. [SRE Agent ステップバイステップ ハンズオン](docs/sre-agent-hands-on.md)を Level 1 から順に進め、単一エージェント、サブエージェントとスキル、ナレッジベースを段階的に設定
+4. ポータル項目や詳細なプロンプトは[SRE Agent のセットアップ リファレンス](docs/sre-agent-setup.md)で確認
+5. 任意: シナリオ 7 を行う場合は[SRE Agent セットアップの定期タスク手順](docs/sre-agent-setup.md#手順-5-毎朝-9-時-jst-の定期タスクを作成)で権限と Activity Log 転送を準備
 
 ### 2. 検証実施手順
 
@@ -137,12 +138,12 @@ RESOURCE_GROUP=<RG 名> SUBSCRIPTION_ID=<サブスクリプション ID> bash sc
 
 ### 2. SRE Agent の設定
 
-1. デプロイ出力 `sreAgentPortalUrl` を開き、[SRE Agent のセットアップ](docs/sre-agent-setup.md)に従って設定します。
-2. 初回オンボーディングで Azure Monitor を接続します。
-3. 管理対象リソースと権限を確認します。
-4. ライブレポートで状態ダッシュボード「SRE Lab Live Status」を作成します。
-5. Sev1/Sev2 を対象とする Review モードの応答プランを作成します。
-6. シナリオ 7 を行う場合は、毎朝 9 時 JST の定期タスクを作成します。
+1. デプロイ出力 `sreAgentPortalUrl` を開きます。
+2. [ステップバイステップ ハンズオン](docs/sre-agent-hands-on.md)の共通準備を実施します。
+3. Level 1 で Review モードの対応計画を作成し、単一エージェントの調査を確認します。
+4. Level 2 で調査用・変更レビュー用のサブエージェントと調査スキルを作成します。
+5. Level 3 でラボ固有のナレッジを登録し、出典付きの回答を確認します。
+6. ライブレポートや定期タスクも試す場合は、[詳細セットアップ](docs/sre-agent-setup.md)に従います。
 
 ## 監視とコストの注意
 
