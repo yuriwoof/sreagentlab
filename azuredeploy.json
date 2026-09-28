@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "6186456388012121433"
+      "templateHash": "4815873680774477166"
     }
   },
   "parameters": {
@@ -1090,7 +1090,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "15499817858738360083"
+              "templateHash": "3531774983822370199"
             }
           },
           "parameters": {
@@ -1195,10 +1195,10 @@
               {
                 "suffix": "frontend-5xx",
                 "metricName": "ResponseStatus",
-                "description": "Application Gateway returned at least one 5xx response in 5 minutes (Sum).",
+                "description": "Application Gateway returned at least three 5xx responses in 5 minutes (Sum).",
                 "severity": 3,
                 "operator": "GreaterThan",
-                "threshold": 0,
+                "threshold": 2,
                 "aggregation": "Total",
                 "dimensions": [
                   {

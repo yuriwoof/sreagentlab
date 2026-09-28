@@ -430,11 +430,11 @@ var appGwMetricDefinitions = [
   {
     suffix: 'frontend-5xx'
     metricName: 'ResponseStatus'
-    description: 'Application Gateway returned at least one 5xx response in 5 minutes (Sum).'
+    description: 'Application Gateway returned at least three 5xx responses in 5 minutes (Sum).'
     // Symptom of unhealthy backends; Sev3 keeps it out of the Sev1/Sev2 SRE Agent response plan.
     severity: 3
     operator: 'GreaterThan'
-    threshold: 0
+    threshold: 2
     aggregation: 'Total'
     dimensions: [
       {
