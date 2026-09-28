@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "14657587813854455781"
+      "templateHash": "475025590011735472"
     }
   },
   "parameters": {
@@ -76,6 +76,15 @@
       "minLength": 3,
       "metadata": {
         "description": "Email address that receives Azure Monitor alert notifications."
+      }
+    },
+    "lawName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-law-{1}', parameters('prefix'), take(uniqueString(newGuid()), 6))]",
+      "minLength": 4,
+      "maxLength": 63,
+      "metadata": {
+        "description": "Log Analytics workspace name. Defaults to a random suffix per deployment; set the existing name (output lawName) to redeploy into the same workspace."
       }
     },
     "sreAgentName": {
@@ -1080,6 +1089,9 @@
           },
           "alertEmail": {
             "value": "[parameters('alertEmail')]"
+          },
+          "lawName": {
+            "value": "[parameters('lawName')]"
           }
         },
         "template": {
@@ -1090,7 +1102,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "7149306328314078836"
+              "templateHash": "11042712894344648001"
             }
           },
           "parameters": {
@@ -1142,6 +1154,12 @@
               "type": "string",
               "metadata": {
                 "description": "Action Group email address for alert notifications"
+              }
+            },
+            "lawName": {
+              "type": "string",
+              "metadata": {
+                "description": "Log Analytics workspace name"
               }
             }
           },
@@ -1250,7 +1268,7 @@
             "law": {
               "type": "Microsoft.OperationalInsights/workspaces",
               "apiVersion": "2023-09-01",
-              "name": "[format('{0}-law', parameters('prefix'))]",
+              "name": "[parameters('lawName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
               "properties": {
@@ -1263,7 +1281,7 @@
             "eventTable": {
               "type": "Microsoft.OperationalInsights/workspaces/tables",
               "apiVersion": "2022-10-01",
-              "name": "[format('{0}/{1}', format('{0}-law', parameters('prefix')), 'Event')]",
+              "name": "[format('{0}/{1}', parameters('lawName'), 'Event')]",
               "properties": {
                 "retentionInDays": 30
               },
@@ -1274,7 +1292,7 @@
             "perfTable": {
               "type": "Microsoft.OperationalInsights/workspaces/tables",
               "apiVersion": "2022-10-01",
-              "name": "[format('{0}/{1}', format('{0}-law', parameters('prefix')), 'Perf')]",
+              "name": "[format('{0}/{1}', parameters('lawName'), 'Perf')]",
               "properties": {
                 "retentionInDays": 30
               },
@@ -1326,7 +1344,7 @@
                 "destinations": {
                   "logAnalytics": [
                     {
-                      "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]",
+                      "workspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('lawName'))]",
                       "name": "logAnalyticsDest"
                     }
                   ]
@@ -1395,7 +1413,7 @@
               "scope": "[resourceId('Microsoft.Network/applicationGateways', parameters('appGwName'))]",
               "name": "[format('{0}-appgw-metrics', parameters('prefix'))]",
               "properties": {
-                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]",
+                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('lawName'))]",
                 "metrics": [
                   {
                     "category": "AllMetrics",
@@ -1611,11 +1629,11 @@
           "outputs": {
             "lawId": {
               "type": "string",
-              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law', parameters('prefix')))]"
+              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('lawName'))]"
             },
             "lawName": {
               "type": "string",
-              "value": "[format('{0}-law', parameters('prefix'))]"
+              "value": "[parameters('lawName')]"
             },
             "actionGroupId": {
               "type": "string",

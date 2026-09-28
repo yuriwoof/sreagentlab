@@ -49,6 +49,11 @@ class TemplateTests(unittest.TestCase):
         self.assertNotIn("sshPublicKey", p)
         self.assertEqual(p["vmCount"]["defaultValue"], 2)
         self.assertEqual(p["location"]["defaultValue"], "japaneast")
+        self.assertIn("newGuid()", p["lawName"]["defaultValue"])
+        self.assertEqual(
+            self.main["resources"]["monitoring"]["properties"]["parameters"]["lawName"]["value"],
+            "[parameters('lawName')]",
+        )
         self.assertEqual(p["tags"]["defaultValue"], {"project": "sreagentlab", "env": "demo"})
         parameters = json.loads((ROOT / "main.parameters.json").read_text(encoding="utf-8"))
         self.assertEqual(parameters["parameters"]["adminPassword"]["value"], "")

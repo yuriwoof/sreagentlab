@@ -36,6 +36,11 @@ param allowedRdpSource string = '127.0.0.1/32'
 @description('Email address that receives Azure Monitor alert notifications.')
 @minLength(3)
 param alertEmail string
+// A random default avoids recovering a soft-deleted workspace of the same name after the RG is recreated.
+@description('Log Analytics workspace name. Defaults to a random suffix per deployment; set the existing name (output lawName) to redeploy into the same workspace.')
+@minLength(4)
+@maxLength(63)
+param lawName string = '${prefix}-law-${take(uniqueString(newGuid()), 6)}'
 @description('Azure SRE Agent resource name.')
 param sreAgentName string = '${prefix}-agent'
 @allowed(['High', 'Low'])
@@ -95,6 +100,7 @@ module monitoring 'modules/monitoring.bicep' = {
     vmNames: vm.outputs.vmNames
     appGwName: appGw.outputs.appGwName
     alertEmail: alertEmail
+    lawName: lawName
   }
 }
 module chaos 'modules/chaos.bicep' = {

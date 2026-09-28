@@ -27,6 +27,9 @@ param appGwName string
 @description('Action Group email address for alert notifications')
 param alertEmail string
 
+@description('Log Analytics workspace name')
+param lawName string
+
 // ---------------------------------------------------------------------------
 // Existing resources (for scope bindings)
 // ---------------------------------------------------------------------------
@@ -45,7 +48,7 @@ resource appGw 'Microsoft.Network/applicationGateways@2024-05-01' existing = {
 // before built-in table schemas are available to a DCR in the same deployment.
 // ---------------------------------------------------------------------------
 resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: '${prefix}-law'
+  name: lawName
   location: location
   tags: tags
   properties: {
