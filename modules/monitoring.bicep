@@ -41,8 +41,10 @@ resource appGw 'Microsoft.Network/applicationGateways@2024-05-01' existing = {
 // ---------------------------------------------------------------------------
 // Log Analytics Workspace and built-in tables (before DCR/query validation)
 // Tables, DCR associations, and diagnostic settings do not support tags.
+// Keep these API versions pinned: workspaces/tables@2025-02-01 can report success
+// before built-in table schemas are available to a DCR in the same deployment.
 // ---------------------------------------------------------------------------
-resource law 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
+resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: '${prefix}-law'
   location: location
   tags: tags
@@ -54,7 +56,7 @@ resource law 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
   }
 }
 
-resource eventTable 'Microsoft.OperationalInsights/workspaces/tables@2025-02-01' = {
+resource eventTable 'Microsoft.OperationalInsights/workspaces/tables@2022-10-01' = {
   parent: law
   name: 'Event'
   properties: {
@@ -62,7 +64,7 @@ resource eventTable 'Microsoft.OperationalInsights/workspaces/tables@2025-02-01'
   }
 }
 
-resource perfTable 'Microsoft.OperationalInsights/workspaces/tables@2025-02-01' = {
+resource perfTable 'Microsoft.OperationalInsights/workspaces/tables@2022-10-01' = {
   parent: law
   name: 'Perf'
   properties: {

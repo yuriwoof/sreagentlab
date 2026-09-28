@@ -135,6 +135,9 @@ class TemplateTests(unittest.TestCase):
     def test_windows_collection_and_metric_thresholds(self):
         monitoring = self.module("monitoring")
         resources = monitoring["resources"]
+        self.assertEqual(resources["law"]["apiVersion"], "2023-09-01")
+        self.assertEqual(resources["eventTable"]["apiVersion"], "2022-10-01")
+        self.assertEqual(resources["perfTable"]["apiVersion"], "2022-10-01")
         self.assertEqual(resources["amaExtensions"]["properties"]["type"], "AzureMonitorWindowsAgent")
         sources = resources["dcr"]["properties"]["dataSources"]
         self.assertNotIn("syslog", sources)
