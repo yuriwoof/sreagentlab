@@ -353,7 +353,7 @@ AzureActivity
    | インシデント対応計画名 | 例: `srelab-alerts-review` |
    | 重要度 | **Sev1** と **Sev2**（CPU、ディスク、メモリが Sev2、IIS 停止、Gateway の Unhealthy と backend 5xx が Sev1）。frontend 5xx は Sev3 のため対象外 |
    | タイトルに含む / タイトルが次の値を含まない | 空欄 |
-   | 応答エージェント | 既定のエージェント |
+   | 応答エージェント | 既定のエージェント (Meta Agent) |
    | エージェントの自律性レベル | **レビュー**（既定は Autonomous のため変更する） |
    | アラートの再調査のクールダウン | 任意。デモで同じアラートを繰り返し発報させる場合は無効のままにする |
 
