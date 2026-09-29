@@ -68,7 +68,7 @@ SRE Agent を初めて開くと、オンボーディング画面が表示され�
 1. サブスクリプション、RG、リージョンと、対象の Windows VM、Application Gateway、NSG、Log Analytics のリソース ID。
 2. VM と Gateway の初期正常性、Azure Monitor アラート、Chaos Studio 実験の一覧。
 3. メトリクスと `Perf` / `Event` / `Heartbeat` の取得期間・確認時刻。未取得と正常値の区別。
-4. 取得できないログ、未接続のコネクタ、権限不足などの未確認事項と、Knowledge settings に保存された文書。
+4. 取得できないログ、未接続のコネクタ、権限不足などの未確認事項と、メモリに保存されたファイル（スレッドに `Created memory: logs.md` のように表示されます）。これらはナレッジ ソースには表示されません。
 
 ![alt text](./imgs/sreagentcheck.png)
 
