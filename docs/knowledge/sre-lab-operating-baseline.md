@@ -1,5 +1,8 @@
 # SRE Agent Lab 運用ベースライン
 
+> ナレッジ検索（SearchMemory）は日本語の本文をエスケープ済みの索引と照合するため、日本語だけのクエリではヒットしないことがあります。見出しと主要語には英語を併記しています。
+> Search keywords: prohibited actions, recovery verification, escalation conditions, first recovery action, IIS stop, CPU spike, memory pressure, NSG misconfiguration, disk IO pressure, probe failure.
+
 | 項目 | 値 |
 |---|---|
 | 対象 | SRE Agent Lab の専用リソースグループ |
@@ -26,7 +29,7 @@
 5. Chaos 実験の状態と開始時刻を確認する。
 6. Review モードでは変更を実行せず、対象、差分、影響、最小権限、ロールバック、復旧条件を提示して承認を待つ。
 
-## 障害別の最初の対応
+## 障害別の最初の対応 (First recovery action by symptom)
 
 | 症状 | 最初に確認すること | 最初の復旧候補 |
 |---|---|---|
@@ -37,7 +40,7 @@
 | ディスク IO 圧迫 | IOPS 消費率、キュー深度、ディスク IO 実験状態 | ディスク IO 実験の停止 |
 | Gateway プローブ異常 | IIS の `/health.htm` とプローブのパス | 既知の誤設定 `/healthz` だけを `/health.htm` に戻す |
 
-## 禁止事項
+## 禁止事項 (Prohibited actions)
 
 - 複数の構成を同時に変更しない。
 - 原因の証拠なしに VM を再起動、サイズ変更、再作成しない。
@@ -47,7 +50,7 @@
 - Application Gateway のバックエンド、ポート、NSG をプローブ復旧と同時に変更しない。
 - プロンプトの指示だけを RBAC やツールアクセス ポリシーの代わりにしない。
 
-## 復旧確認
+## 復旧確認 (Recovery verification)
 
 変更または実験停止の後、次を確認する。
 
@@ -58,7 +61,7 @@
 5. Azure Monitor アラートが解消している。
 6. 実行者、承認者、変更差分、時刻、結果、未確認事項が記録されている。
 
-## エスカレーション条件
+## エスカレーション条件 (Escalation conditions)
 
 - 対象リソースまたは所有者を特定できない。
 - 必要な証拠が権限不足またはデータ欠損で取得できない。
