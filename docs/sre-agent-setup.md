@@ -37,7 +37,7 @@ RG 内のリソースが対象であることは、サブスクリプション�
 |---|---|
 | デプロイ実行者 | 対象 RG の作成操作とロール割り当て操作が必要。RG 作成やプロバイダー登録は別途管理者と調整 |
 | デプロイ利用者 | `main.bicep` が対象 RG に SRE Agent 用ロールと Contributor を割り当て |
-| SRE ID | 対象 RG の Reader と Log Analytics Reader、High の場合のみ Contributor |
+| SRE ID | 対象 RG の Reader と Log Analytics Reader、High の場合のみ Contributor。公式の Azure Monitor アラート連携手順はサブスクリプションの Monitoring Contributor を要求するため、[応答プランの手順](#手順-4-応答プランを作成してアラート受信を確認)で実効ロールを確認 |
 | 共有 Chaos ID | 各対象 VM の Reader |
 | CPU / メモリ実験 ID | 全対象 VM の Reader |
 | IIS / ディスク IO 実験 ID | 最初の VM の Reader |
@@ -100,7 +100,9 @@ SRE Agent を初めて開くと、オンボーディング画面が表示され�
 | レポートを作成する利用者の権限 | エージェントに対する読み書き権限が必要です。`main.bicep` はデプロイ実行者に **SRE Agent Administrator** を割り当てます。 |
 | レポートを閲覧する利用者の権限 | 共有先にも **SRE Agent Standard User** または **SRE Agent Administrator** が必要です。リンクを共有しても権限は付与されません。 |
 | エージェントのデータアクセス | エージェントのマネージド ID には、ラボ RG の Reader と Log Analytics Reader を割り当てています（[sre-agent.bicep](../modules/sre-agent.bicep)）。 |
-| データソース | **Log Analytics コネクタが必要です**。ライブレポートは設定済みのコネクタのツールだけを呼び出します。`main.bicep` では作成しないため、[Log Analytics コネクタを追加する](#log-analytics-コネクタを追加する)の手順で追加します（[コネクタ](https://learn.microsoft.com/azure/sre-agent/connectors)）。 |
+| ゲストログ | **Log Analytics コネクタが必要です**。ライブレポートは設定済みのコネクタのツールだけを呼び出します。`main.bicep` では作成しないため、[Log Analytics コネクタを追加する](#log-analytics-コネクタを追加する)の手順で追加します（[コネクタ](https://learn.microsoft.com/azure/sre-agent/connectors)）。 |
+| Azure Monitor のプラットフォームメトリクス | Log Analytics コネクタだけで `Percentage CPU`、OS ディスクメトリクス、Application Gateway メトリクスを取得できるとは限りません。接続後に、Azure Monitor メトリクスを取得する読み取り専用ツール（例: `Monitor Metrics Query`）が利用可能か確認します。ツールの名前と提供元は環境によって異なります。 |
+| Azure Monitor アラート状態 | `Fired` / `Resolved` は Alerts Management のアラート状態から取得します。Activity Log の規則作成・変更履歴は発報状態の代わりになりません。Alerts Management の読み取りツールがなければ、アラート一覧を「未取得」と表示し、別途承認された読み取りアクセスを用意します。 |
 | ゲストのログ | AMA と DCR が `Perf`（CPU、メモリ、ディスク、ネットワーク）と `Event`（Service Control Manager 7036）を LAW に送ります。 |
 | Chaos 実験の履歴（任意） | `AzureActivity` を使う場合は、[手順 5](#手順-5-毎朝-9-時-jst-の定期タスクを作成)に記載した `enable-activity-log.sh` でサブスクリプションの Activity Log を LAW に転送します。 |
 
@@ -139,6 +141,11 @@ SRE Agent を初めて開くと、オンボーディング画面が表示され�
 
    ![コネクタ一覧で srelab-law が Connected](./imgs/sreagentconnector4.png)
 
+5. ライブレポートが利用できる読み取り専用ツール一覧を確認します。接続済みのコネクタ名だけで判断せず、レポートが必要とする Azure Monitor メトリクス、Alerts Management、Log Analytics の各データを取得するツールがあることを確認してください。
+   メトリクス取得ツールがない場合は、サポートされている Azure Monitor コネクタと必要最小限の権限を管理者と確認してから追加します。
+   追加できないデータはレポートで未取得と表示し、Perf の値や Activity Log の記録で代用しません。
+   検証した環境では `system-mcp-monitor` が `Monitor Metrics Query` を提供しました。これはその環境での確認結果であり、すべてのエージェントで同じコネクタやツールが提供される保証ではありません。
+
 ### レポートの内容
 
 | セクション | データソース | 表示内容 |
@@ -151,11 +158,14 @@ SRE Agent を初めて開くと、オンボーディング画面が表示され�
 | App Gateway リクエスト | `TotalRequests`、`ResponseStatus` と `BackendResponseStatus`（`HttpStatusGroup = 5xx`） | リクエスト数、Gateway の 5xx と IIS の 5xx の区別 |
 | IIS 停止イベント | LAW `Event`（System、Service Control Manager、Event ID 7036、W3SVC、stopped） | VM、時刻、メッセージの一覧 |
 | Chaos 実験の開始履歴 | LAW `AzureActivity`（`Microsoft.Chaos/experiments/start/action`） | 実験名、開始時刻、状態、実行者 |
-| アラート | 発報中と解消済みの Azure Monitor アラート | ラボ RG のアラート一覧 |
+| アラート | Alerts Management の `monitorCondition` | ラボ RG の `Fired` / `Resolved`、重大度、対象、発報時刻。人手による acknowledge / close 状態とは分けて表示 |
 
 App Gateway の診断設定は `AllMetrics` を LAW に送ります。
 ただし `AzureMetrics` テーブルにはディメンションが含まれないため、5xx の内訳は Azure Monitor メトリクスから取得します。
 `VM Cached IOPS Consumed Percentage` は、OS ディスクが caching=None のためデータが出ない場合があります。
+VM と Gateway のプラットフォームメトリクスは Azure Monitor メトリクス取得ツールから取得します。Perf のカウンターと同じ値として扱わないでください。
+各値にはサンプル時刻と取得時刻を付けます。比較するバックエンドの状態は同じサンプル時刻と同じディメンションの値にそろえ、期間内最大値は最新値と別の系列として表示します。
+有効なサンプルがない場合は「データなし」、一部欠損がある場合は取得件数と対象件数を表示します。欠損を 0 に置き換えません。
 
 ### 作成手順
 
@@ -174,7 +184,7 @@ App Gateway の診断設定は `AllMetrics` を LAW に送ります。
 
    ![コネクタ追加後に Done, connector is set up を選ぶ](./imgs/sreagentlr2.png)
 
-6. レポートが開くたびに呼び出すツールの承認を求められます。ツール名を確認し、**読み取り専用のツールだけを承認**します。
+6. レポートが開くたびに呼び出すツールの承認を求められます。ツール名とデータソースを照合し、**読み取り専用のツールだけを承認**します。必要なデータを取得するツールがない場合、権限を広げて代用せず、該当項目を未取得にします。
 
    ![レポートが呼び出すツールの承認画面](./imgs/sreagentlr3.png)
 
@@ -198,22 +208,33 @@ Application Gateway <prefix>-appgw です。既定の期間は直近 1 時間と
    HealthyHostCount、UnhealthyHostCount、TotalRequests、
    ResponseStatus と BackendResponseStatus の HttpStatusGroup = 5xx を別々のシリーズで表示
    UnhealthyHostCount が 1 以上なら異常のステータスにしてください
+   各ホスト状態は同じサンプル時刻と同じバックエンド設定のディメンションで比較してください。
+   期間内最大値を表示する場合は最新値と分け、「期間内最大」と時刻を明記してください
 4. IIS 停止イベントの表（新しい順）:
    Event テーブル、System ログ、Source "Service Control Manager"、EventID 7036、
    W3SVC（World Wide Web Publishing Service）が stopped になったイベント
 5. Chaos 実験の開始履歴の表:
    AzureActivity テーブルの OperationNameValue "Microsoft.Chaos/experiments/start/action"、
    ResourceGroup が <RG> のもの。テーブルがない、または空の場合はその旨を表示してください
-6. ラボ RG の Azure Monitor アラートの一覧（発報中と解消済み、重大度、対象、時刻）
+6. ラボ RG の Azure Monitor アラート一覧は Alerts Management の `monitorCondition` から取得してください。
+   `Fired` / `Resolved`、重大度、対象、発報時刻を表示し、人手による acknowledge / close 状態とは分けてください。
+   Azure Monitor アラートの読み取りツールが利用できない場合は「未取得」と表示してください。
+   Activity Log のアラート規則の作成・変更・削除履歴を、発報状態の代わりに使用しないでください
 
 データはコネクタとツールの結果だけで表示し、モデルによる要約セクションは作成しないでください。
 リソースを変更するボタンやアクションは追加せず、読み取り専用のツールだけを使用してください。
 欠損値は 0 として描画せず、データなしと表示してください。
+各値にサンプル時刻と取得時刻を表示してください。
+有効データ件数が 0 の場合は「データなし」、一部欠損がある場合は取得件数を表示してください。
 ```
 
 出力例としては以下のようなダッシュボードが出力されます。
 
 ![alt text](./imgs/sreagentlr4.png)
+
+レポートの保存後は、画面上で値が表示されることだけで合格にしません。
+生成された HTML と読み取りツールの応答を照合し、Alerts Management の状態と Activity Log の規則変更を混同していないこと、Healthy と Unhealthy が同じ時刻とディメンションを使うこと、有効サンプルがない指標を 0 と表示していないことを確認します。
+これらを確認できない項目は、受入済みとせず「未確認」または「未取得」と記録します。
 
 モデルによる要約や分析のセクションは、更新のたびに AAU を消費します。
 このため、状態ダッシュボードは表示のみで作成し、原因分析はチャットで個別に依頼します。
@@ -341,6 +362,8 @@ AzureActivity
 
 ## 手順 4: 応答プランを作成してアラート受信を確認
 
+応答プランを作成する前に、[アラートとインシデント対応](#アラートとインシデント対応)の手順で SRE ID の実効ロールとスコープを確認します。
+
 接続時に既定の応答プラン `quickstart_handler`（Sev0～Sev2、自律モード）が作られる場合があります。
 ただし、オンボーディング後に接続した場合などは作られないことがあります。
 このラボでは、承認付き修復を実演するため、次の手順で専用の応答プランを作成します。
@@ -363,6 +386,46 @@ AzureActivity
 5. `quickstart_handler` がある場合は、二重に処理されないよう、**表ビュー** で削除するか **無効にする** で無効にします。
 
 詳細は[Azure Monitor アラート](https://learn.microsoft.com/azure/sre-agent/azure-monitor-alerts)、[インシデント応答の自動化](https://learn.microsoft.com/azure/sre-agent/automate-incidents)、[インシデント応答プラン](https://learn.microsoft.com/azure/sre-agent/incident-response-plans)を参照してください。
+
+### アラートとインシデント対応
+
+`main.bicep` はラボ内の次のアラートを作成します。
+アラートルールの発報状態と、Action Group の通知配送、Agent のインシデント作成は別々に確認してください。
+
+| ルール | 対象 / データソース | 条件 | 集計 / 評価窓 | 評価頻度 | 重大度 |
+|---|---|---|---|---|---|
+| `high-cpu` | VM ごとの Azure Monitor メトリクス `Percentage CPU` | 平均が 60% を超える | Average / 5 分 | 1 分 | Sev2 |
+| `os-disk-iops` | VM ごとの Azure Monitor メトリクス `OS Disk IOPS Consumed Percentage` | 平均が 90% を超える | Average / 5 分 | 1 分 | Sev2 |
+| `os-disk-queue` | VM ごとの Azure Monitor メトリクス `OS Disk Queue Depth` | 平均が 10 を超える | Average / 5 分 | 1 分 | Sev2 |
+| `cached-iops` | VM ごとの Azure Monitor メトリクス `VM Cached IOPS Consumed Percentage` | 平均が 90% を超える | Average / 5 分 | 1 分 | Sev2 |
+| `low-memory` | LAW `Perf` の VM ごとの `Memory` / `Available Bytes` | 平均が 3 GiB 未満 | Average / 5 分 | 1 分 | Sev2 |
+| `iis-stop` | LAW `Event` の System / Service Control Manager / Event ID 7036 | W3SVC が stopped になったイベントが 1 件以上 | Count / 5 分 | 1 分 | Sev1 |
+| `unhealthy-host` | Application Gateway の `UnhealthyHostCount` | 平均が 1 以上 | Average / 5 分 | 1 分 | Sev1 |
+| `frontend-5xx` | Application Gateway の `ResponseStatus`、`HttpStatusGroup=5xx` | 合計が 2 を超える（3 件以上） | Total / 5 分 | 1 分 | Sev3 |
+| `backend-5xx` | Application Gateway の `BackendResponseStatus`、`HttpStatusGroup=5xx` | 合計が 0 を超える | Total / 5 分 | 1 分 | Sev1 |
+
+VM のメトリクスアラートは VM ごとに別のルールです。
+`VM Cached IOPS Consumed Percentage` は OS ディスクの caching=None 構成でデータがない場合があります。
+ディスク IOPS やキューの閾値はこのラボ用であり、すべての環境に適用できる基準ではありません。
+テンプレートの定義を変更した場合は、[monitoring.bicep](../modules/monitoring.bicep)を正本として表も更新してください。
+
+公式の Azure Monitor アラート連携手順は、SRE Agent のユーザー割り当てマネージド ID にサブスクリプションの **Monitoring Contributor** を要求します。
+オンボーディング時にこのロールが自動で付与されたと決めつけず、実効ロールを確認してください。
+テンプレートが付与するラボ RG の Reader、Log Analytics Reader、Contributor は、サブスクリプションスコープのロールを代替しません。
+`main.bicep` はサブスクリプションスコープのロールを付与しないため、応答プランを作る前に実効ロールとスコープを確認します。
+
+```bash
+export SUBSCRIPTION_ID="<subscriptionId>"
+export SRE_ID_PRINCIPAL_ID="<sreIdentityPrincipalId output>"
+az role assignment list --subscription "$SUBSCRIPTION_ID" \
+  --assignee-object-id "$SRE_ID_PRINCIPAL_ID" --all \
+  --query "[].{role:roleDefinitionName,scope:scope}" -o table
+```
+
+サブスクリプションスコープに Monitoring Contributor がない場合、アラートの表示、acknowledge / close、Agent への取り込みが機能すると決めつけないでください。
+必要性と影響範囲を管理者に確認し、承認を得た場合だけ必要なスコープへ追加します。
+サブスクリプションの Owner / Contributor を代替として付与しません。
+接続を保存しただけで追加の権限が付与されたと見なさず、既知のアラートが Alerts Management から Agent に取り込まれ、意図した対応計画へルーティングされることを個別に確認します。
 
 ## 手順 5: 毎朝 9 時 JST の定期タスクを作成
 
@@ -445,7 +508,8 @@ Started/Accepted と Succeeded/Failed を同じものとして数えず、
 
 操作名と状態の大文字小文字の差を吸収し、ラボ RG 以外の情報を報告に混ぜないでください。
 エクスポートの開始前、取り込み遅延、テーブル未作成、権限不足は未取得として区別してください。
-想定外の変更があれば警告し、疑わしい操作も Caller だけで意図を断定せず、根拠と確認先を示してください。
+想定外の変更があれば警告してください。Caller が同じという理由だけで Agent 起因と断定せず、tool trace、CorrelationId、リソース操作の記録、検証 runner などの実行タイムラインを照合してください。
+出所を特定できない場合は「主体の帰属未確認」とし、根拠と確認先を示してください。
 リソースや権限は変更せず、費用を AzureActivity から計算しないでください。
 ```
 
@@ -456,7 +520,8 @@ RG より上位で付与された RBAC は、RG のフィルターだけでは�
 
 最初の予定実行後、タスク名を選んで実行履歴を開きます。
 公式手順では各実行が会話スレッドを作成し、計画、使用ツール、結果、失敗時のエラーを確認できます。
-コスト API と Activity Log の取得先が正しいこと、結果に時刻と根拠があること、書き込み操作をしていないことを確認してください。
+画面や API の実行状態が「成功」でも、必要なデータ取得や最終回答の正しさを保証しません。
+コスト API と Activity Log の取得先が正しいこと、結果に時刻と根拠があること、主体の帰属が実行記録と一致すること、書き込み操作をしていないことを会話内容と tool trace で確認してください。
 3 回連続失敗すると Failed になるため、単に次回まで放置せず取得権限と接続先を確認します。
 
 編集時はタスクを選択して **編集**、内容を変更して **保存** を選びます。
