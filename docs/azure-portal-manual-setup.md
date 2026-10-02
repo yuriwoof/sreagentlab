@@ -146,6 +146,7 @@ Windows 用 DCR `srelab-dcr` を作成し、全 VM を関連付けます。
 | パフォーマンス、10 秒間隔 | `\Processor Information(_Total)\% Processor Time` |
 | メモリ | `\Memory\Available Bytes`、`\Memory\% Committed Bytes In Use` |
 | ディスク | `\LogicalDisk(*)\% Free Space`、`\LogicalDisk(*)\Disk Reads/sec`、`\LogicalDisk(*)\Disk Writes/sec`、`\LogicalDisk(*)\Avg. Disk Queue Length` |
+| ネットワーク | `\Network Interface(*)\Bytes Received/sec`、`\Network Interface(*)\Bytes Sent/sec` |
 | Windows Event | `System!*[System[Provider[@Name='Service Control Manager'] and (EventID=7036)]]` |
 | 送信先 | Log Analytics の `Perf` / `Event` |
 

@@ -1,6 +1,6 @@
 # SRE Agent Lab 運用ベースライン
 
-> ナレッジ検索（SearchMemory）は日本語の本文をエスケープ済みの索引と照合するため、日本語だけのクエリではヒットしないことがあります。見出しと主要語には英語を併記しています。
+> 検索言語ごとの結果は文書、インデックス、権限、サービスの状態によって変わる可能性があります。見出しと主要語には英語の別名も併記していますが、日本語クエリの検索結果は実際に確認してください。
 > Search keywords: prohibited actions, recovery verification, escalation conditions, first recovery action, IIS stop, CPU spike, memory pressure, NSG misconfiguration, disk IO pressure, probe failure.
 
 | 項目 | 値 |

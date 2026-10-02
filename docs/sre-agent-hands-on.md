@@ -85,7 +85,7 @@ CPU の低下、Gateway 経由の HTTP 200、実験終了、アラート解消�
 ### Level 1 の合格条件
 
 - [ ] 対応計画が **オン / Review** である。
-- [ ] CPU アラートから 1 件の調査スレッドが作成された。
+- [ ] 発報した各 CPU アラートが意図した対応計画へルーティングされ、同じ発報を重複して処理していない。
 - [ ] 調査に対象、期間、証拠、未確認事項が含まれる。
 - [ ] 修復操作は承認前に実行されていない。
 - [ ] 実験停止後の復旧条件を確認した。
@@ -289,7 +289,8 @@ Application Gateway の直近 3 時間のバックエンド正常性とプロー
 
 3. 次を確認します。
    - `srelab-incident-triage` の手順に沿って、事実、原因候補、未確認事項を分けて出力している。
-   - 両バックエンドと VM のローカル `/health.htm` を比較している。
+   - 両バックエンドと、実施者が取得して同じスレッドに提示した VM ごとの `/health.htm` の HTTP 応答を比較している。
+   - VM 内の HTTP 応答を取得できない場合は、正常と推測せず証拠不足として扱っている。
    - 調査担当が変更を実行していない。
    - プローブが `/health.htm` で全バックエンドが Healthy であれば、変更案を作らず「変更不要」と結論している（この場合に変更レビュー依頼が出ないのは正しい挙動です）。
 
@@ -301,25 +302,50 @@ Application Gateway の直近 3 時間のバックエンド正常性とプロー
 ![alt text](imgs/response-agent-change.png)
 
 3. モードが **Review** のままであることを確認して保存します。
-4. Bash で、デプロイ出力の値を設定します。
+4. Azure Monitor アラートの受信を確認する前に、[セットアップの権限確認](sre-agent-setup.md#手順-4-応答プランを作成してアラート受信を確認)に従い、SRE ID のロールとスコープを確認します。
+   必要なサブスクリプション権限がない場合は管理者の承認を得るまで先へ進まず、Owner / Contributor を代替として付与しません。
+5. Bash で、デプロイ出力の値を設定します。これらはスクリプトの子プロセスにも渡るよう `export` します。
 
    ```bash
-   RESOURCE_GROUP="<resourceGroupName>"
+   export SUBSCRIPTION_ID="<subscriptionId>"
+   export RESOURCE_GROUP="<resourceGroupName>"
    APPGW_NAME="<appGwName>"
    APPGW_IP="<appGwPublicIp>"
    ```
 
-5. [手順 12](#7-対応計画を調査担当へルーティングして承認付き変更を確認する) のコマンドで、プローブが `/health.htm`、全バックエンドが Healthy、Gateway 経由で HTTP 200 であることを確認してから、プローブ誤設定を注入します。
+6. 障害注入の前に、プローブが `/health.htm`、全バックエンドが Healthy、Gateway 経由で HTTP 200 であることを確認します。
+
+   ```bash
+   az network application-gateway probe show --subscription "$SUBSCRIPTION_ID" -g "$RESOURCE_GROUP" \
+     --gateway-name "$APPGW_NAME" -n iis-health --query path -o tsv
+   az network application-gateway show-backend-health --subscription "$SUBSCRIPTION_ID" \
+     -g "$RESOURCE_GROUP" -n "$APPGW_NAME" \
+     --query "backendAddressPools[].backendHttpSettingsCollection[].servers[].{address:address,health:health}" -o table
+   curl -s -o /dev/null -w '%{http_code}\n' "http://$APPGW_IP/"
+   ```
+
+   すべてのバックエンドが Healthy で Gateway の応答が `200` の場合だけ、プローブ誤設定を注入します。
 
    ```bash
    bash scripts/break-appgw-probe.sh
    ```
 
-6. Sev1 の `UnhealthyHostCount` アラートが発報し、調査用カスタム エージェントが担当するインシデント スレッドが自動作成されることを確認します。メトリクスの評価と取り込みには遅延があります。
-7. インシデント スレッドで、調査担当が次を含む「変更レビュー依頼」を出力して停止したことを確認します。
+7. Sev1 の `UnhealthyHostCount` アラートが発報し、調査用カスタム エージェントが担当するインシデント スレッドが自動作成されることを確認します。メトリクスの評価、アラートの取り込み、ロール設定にはそれぞれ確認が必要です。
+8. 障害中の VM 内 HTTP 応答は、調査担当の読み取り専用ツールでは取得できません。実施者が権限と実行内容を確認し、承認を得たうえで、各 VM に Azure VM Run Command を実行します。これは ARM の読み取り照会ではなく、ゲスト OS 内でコマンドを実行する操作です。
+   VM 名、実行時刻、コマンド、HTTP 応答、Run Command の実行結果を同じインシデント スレッドに提示してください。HTTP 応答を取得できなければ、その事実を記録して調査を止め、Agent に正常性を推測させないでください。
+
+   ```bash
+   VM_NAME="<vmName>"
+   az vm run-command invoke --subscription "$SUBSCRIPTION_ID" --resource-group "$RESOURCE_GROUP" \
+     --name "$VM_NAME" --command-id RunPowerShellScript \
+     --scripts '$sampledAt = (Get-Date).ToUniversalTime().ToString("o"); try { $response = Invoke-WebRequest -Uri "http://localhost/health.htm" -UseBasicParsing -TimeoutSec 30; "sampledAtUtc=$sampledAt status=$([int]$response.StatusCode)" } catch { if ($_.Exception.Response) { "sampledAtUtc=$sampledAt status=$([int]$_.Exception.Response.StatusCode)" } else { throw } }' \
+     --query "value[0].message" -o tsv
+   ```
+
+9. インシデント スレッドで、調査担当が次を含む「変更レビュー依頼」を出力して停止したことを確認します。
    - 対象: プローブ `iis-health` の完全なリソース ID
    - 差分: パス `/healthz` → `/health.htm`
-   - 根拠: VM のローカル `/health.htm` は正常で、プローブだけが存在しない `/healthz` を参照している
+   - 根拠: 実施者が同じ障害中に取得した両 VM の HTTP 応答と時刻、プローブが `/healthz` を参照している実測値
    - 実行予定の `az network application-gateway probe update ... --path /health.htm`
    - 影響、最小権限、ロールバック、復旧確認条件
 
@@ -331,7 +357,7 @@ Application Gateway の直近 3 時間のバックエンド正常性とプロー
    変更操作は実行しないでください。
    ```
 
-8. 同じインシデント スレッドで `/agent` を入力し、`srelab-change-reviewer` を選択して次を入力します。
+10. 同じインシデント スレッドで `/agent` を入力し、`srelab-change-reviewer` を選択して次を入力します。
 
 ```text
 直前の変更レビュー依頼をレビューしてください。
@@ -340,34 +366,34 @@ Application Gateway の直近 3 時間のバックエンド正常性とプロー
 Review モードの Approve / Deny を待ってください。
 ```
 
-9. レビュー担当がレビュー結果を示し、合格時に書き込み操作の **Approve** / **Deny** が表示されることを確認します。表示されたコマンドの対象、プローブ名、パスがレビュー結果と一致することを確認します。
-10. （任意）最初に **Deny** を選び、プローブが `/healthz` のまま変更されていないことを確認します。その後、同じスレッドで再度依頼して承認ゲートを表示します。
+11. レビュー担当がレビュー結果を示し、合格時に書き込み操作の **Approve** / **Deny** が表示されることを確認します。表示されたコマンドの対象、プローブ名、パスがレビュー結果と一致することを確認します。
+12. （任意）最初に **Deny** を選び、プローブが `/healthz` のまま変更されていないことを確認します。その後、同じスレッドで再度依頼して承認ゲートを表示します。
 
     ```bash
-    az network application-gateway probe show -g "$RESOURCE_GROUP" --gateway-name "$APPGW_NAME" \
+    az network application-gateway probe show --subscription "$SUBSCRIPTION_ID" -g "$RESOURCE_GROUP" --gateway-name "$APPGW_NAME" \
       -n iis-health --query path -o tsv
     ```
 
-11. 内容が正しければ **Approve** を選びます。
-12. レビュー担当が実行結果と復旧確認結果を返すことを確認します。プローブ周期と反映を待ち、次でも確認します。
+13. 内容が正しければ **Approve** を選びます。
+14. レビュー担当が実行結果と復旧確認結果を返すことを確認します。プローブ周期と反映を待ち、次でも確認します。
 
     ```bash
-    az network application-gateway probe show -g "$RESOURCE_GROUP" --gateway-name "$APPGW_NAME" \
+    az network application-gateway probe show --subscription "$SUBSCRIPTION_ID" -g "$RESOURCE_GROUP" --gateway-name "$APPGW_NAME" \
       -n iis-health --query path -o tsv
-    az network application-gateway show-backend-health -g "$RESOURCE_GROUP" -n "$APPGW_NAME" \
+    az network application-gateway show-backend-health --subscription "$SUBSCRIPTION_ID" -g "$RESOURCE_GROUP" -n "$APPGW_NAME" \
       --query "backendAddressPools[].backendHttpSettingsCollection[].servers[].{address:address,health:health}" -o table
     curl -s -o /dev/null -w '%{http_code}\n' "http://$APPGW_IP/"
     ```
 
     パスが `/health.htm`、全バックエンドが `Healthy`、HTTP 応答が `200` であれば復旧です。アラートの解消も確認します。
 
-13. 承認ボタンが表示されずに終了した場合は、変更されていないことを確認したうえで、[トラブルシューティング](#承認ボタンが表示されない場合)を確認します。ハンズオンを継続する場合は、手動で復旧します。
+15. 承認ボタンが表示されずに終了した場合は、変更されていないことを確認したうえで、[トラブルシューティング](#承認ボタンが表示されない場合)を確認します。ハンズオンを継続する場合は、手動で復旧します。
 
     ```bash
     bash scripts/fix-appgw-probe.sh
     ```
 
-14. 次を確認します。
+16. 次を確認します。
     - 調査担当が変更を実行していない。
     - レビュー担当が同じスレッドの変更レビュー依頼を参照し、現在値を読み取りで再確認している。
     - 証拠が不足する案、または既知の正常値と異なる案を合格にしていない。
@@ -445,12 +471,14 @@ SRE Agent Lab で IIS 停止が疑われる場合の、最初の復旧操作と�
 文書にない情報は推測で補わず、未記載としてください。
 ```
 
-`sre-lab-operating-baseline.md` には「禁止事項」「復旧確認」「エスカレーション条件」を明記していますが、ナレッジ検索（`SearchMemory`）は本文を Unicode エスケープ済みの索引と照合するため、**日本語だけのクエリでは 0 件になります**。英数字のトークン（リソース名やコマンド名など）や、自動生成された短い英語要約に一致した場合だけヒットします。これは文書が読めていない、またはアクセス権が反映されていないという問題ではありません。
+`sre-lab-operating-baseline.md` には「禁止事項」「復旧確認」「エスカレーション条件」を明記していますが、検索言語ごとの挙動は、文書、インデックス、権限、サービスの状態によって変わる可能性があります。日本語だけのクエリが必ず失敗する、または検索結果がない理由は言語だけだと決めつけないでください。
+
+検索結果を比較するときは、同じ文書と権限を使い、新しい会話から日本語、英語、文書中の英数字の固有語をそれぞれ検索します。各クエリの結果件数、出典、実施日時を記録します。結果がない場合は、ナレッジ ソースのインデックス状態、対象エージェントのアクセス設定、クエリと文書の内容を確認します。確認できていない原因を断定しないでください。
 
 回答が `/learn` のメモリ（`debugging.md` など）だけを出典にしている場合は、次を確認します。
 
 1. 同じチャットで、文書内の英数字トークンを含めて聞き直します（例:「`ManualDenyAppGatewayHTTP` 以外の規則を変更してよいか教えてください」）。ヒットすれば検索自体は機能しています。
-2. 恒常的な対策として、ナレッジ文書の見出しや要点に英語キーワードを併記します。このリポジトリの [`sre-lab-operating-baseline.md`](knowledge/sre-lab-operating-baseline.md) は見出しに英語を併記済みです。同名で再アップロードすると、日本語の質問でも英語キーワード経由でヒットしやすくなります (本来 SRE Agent は英語のみサポートされているため、英語での表記が望ましいです)。
+2. 文書と質問の表記が大きく異なる場合は、見出しや主要語に英語の別名を併記し、再インデックス後に同じ条件で再検証します。英語キーワードを追加しても、日本語の質問が必ずヒットするとは限りません。
 
 続けて、文書にない情報を尋ねます。
 
