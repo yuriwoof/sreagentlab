@@ -11,8 +11,8 @@
 | インシデント | ID、概要、影響範囲、重大度 |
 | 対象 | サブスクリプション、RG、VM / NSG / Gateway の完全な ID |
 | 時刻 | 発生、検知、承認、修復、復旧確認。UTC と JST を区別 |
-| 検知 | アラート ID、評価期間、メトリクス値、HTTP 応答 |
-| 証拠 | KQL / API / Run Command の結果と取得時刻 |
+| 検知 | アラート ID、評価期間、メトリクス値、HTTP 応答。平均にはサンプル間隔、到着数と期待数、完全窓か部分期間かを併記 |
+| 証拠 | KQL / API / Run Command の結果と取得時刻。空結果にはクエリ、投影前の応答、対象期間と取得範囲を併記 |
 | 変更 | 操作者、承認者、変更前後の差分、CorrelationId |
 | 復旧 | 実験終了、ゲスト状態、Gateway 正常数、HTTP、アラート |
 | 未確認事項 | 欠損、取り込み遅延、権限不足、追加調査 |
@@ -24,6 +24,13 @@
 3. ゲストデータは `Perf` / `Event`、操作履歴は `AzureActivity`、費用は Cost Management に分けて取得します。
 4. 対象、変更差分、影響、最小権限、ロールバック、確認条件を提示します。
 5. 明示的な承認後に 1 つの変更を行い、結果を検証します。
+
+空結果や `null` が返った場合は、実行されていない、正常、未構成と決めつけないでください。
+Chaos の実行 API は投影前の応答でフィールドを確認し、実行状態と `startedAt` / `stoppedAt` を実験定義や開始要求の結果から区別します。
+実験定義の `provisioningState` は最新の実行状態と別に記録します。
+Perf が空なら実際のカウンター名と DCR、対象 VM、期間を確認し、プラットフォームログが空なら診断設定と転送先を確認します。
+取り込み遅延、未到着、API エラー、照会ツールの未接続は別々の未確認事項として記録します。
+メトリクスの部分期間平均をアラートの完全な評価窓と呼ばず、定義上の実験継続時間から終了時刻を推定しません。
 
 変数は対象デプロイの outputs と照合して設定します。
 次は読み取り例です。
@@ -102,12 +109,23 @@ bash scripts/run-chaos.sh status diskio
 
 ```text
 実験期間と OS ディスクの IOPS 消費率、キュー上昇が重なっています。
-まず対象の diskio 実験を停止して値の回復を確認する案です。
+最新の実行が稼働中なら、対象の diskio 実験を停止して値の回復を確認する案です。
+終了済みなら停止せず、IOPS とキューを再取得して回復を確認します。
 ディスク拡張、SKU 変更、VM サイズ変更は自動実行しません。
 変更を検討する場合は性能上限、料金差、停止影響、ロールバック制約を別途提示します。
 ```
 
 ### 承認後の実行と確認
+
+まず最新の実行状態を確認します。
+稼働中で停止が必要な場合だけ、承認を得て `stop` を実行します。
+終了済みなら `stop` は送らず、メトリクスの回復を確認します。
+
+```bash
+bash scripts/run-chaos.sh status diskio
+```
+
+今回の実行が稼働中で停止が必要な場合に限り、次を実行します。
 
 ```bash
 bash scripts/run-chaos.sh stop diskio
@@ -115,6 +133,8 @@ bash scripts/run-chaos.sh status diskio
 ```
 
 実験終了後に IOPS とキューが平常値へ戻り、HTTP 200 が維持されることを確認します。
+I/O の量や実験の設定値だけでは、特定のファイルへの書き込みや Azure メトリクスの内部的な計算方法を実証できません。
+ファイル固有の事実や指標の計測定義を確認できない場合は、因果の説明を仮説として記録します。
 元イメージより小さい 32 GiB への縮小や、ゲストディスクの破壊的な再作成は復旧策にしません。
 負荷ファイルを削除する場合も、実験が終了したことと対象ファイルを確認してから別途承認します。
 
@@ -127,8 +147,10 @@ az network application-gateway probe show --resource-group "$RESOURCE_GROUP" \
   --gateway-name "$APPGW_NAME" --name "$PROBE_NAME" -o json
 ```
 
-ゲストの `/health.htm` は HTTP 200 なのに、プローブが `/healthz` を参照していないか確認します。
+同じ障害中に実施者が取得した各 VM の `/health.htm` の HTTP 応答を確認し、プローブの現在値 `/healthz` と比較します。
+ゲストの応答を取得できない場合は、正常と推測せず証拠不足として記録します。
 Gateway が生成する 502 は `ResponseStatus` の frontend 5xx であり、`BackendResponseStatus` の backend 5xx とは別です。
+プローブの間隔と失敗回数だけで、Gateway 設定更新後の無停止や復旧時間の上限は保証できません。
 
 ```text
 プローブだけを /healthz から既知の正常値 /health.htm に戻す案です。
@@ -148,8 +170,15 @@ bash scripts/fix-appgw-probe.sh
 
 ## IIS のゲスト確認と復旧
 
-IIS 実験は先に停止します。
-`stop iis` の終了後もサービスが復旧していなければ、`fix-iis.sh` または以下に相当する承認済み PowerShell を使用します。
+IIS 実験の最新の実行状態を確認します。
+稼働中で停止が必要な場合にだけ承認を得て `stop` を実行し、終了済みなら送らずにサービスの現在状態を確認します。
+実験終了後もサービスが復旧していなければ、`fix-iis.sh` または以下に相当する承認済み PowerShell を使用します。
+
+```bash
+bash scripts/run-chaos.sh status iis
+```
+
+今回の実行が稼働中で停止が必要な場合に限り、次を実行します。
 
 ```bash
 bash scripts/run-chaos.sh stop iis
@@ -174,6 +203,9 @@ az vm run-command invoke --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" \
 
 VM 側の成功だけで終了せず、Gateway の Backend health と外部 HTTP 応答まで確認してください。
 サービス停止イベントは履歴として残るため、現在の Running 状態と区別します。
+再発防止に Windows の Service Recovery を提案する場合、正常な停止と異常終了を分けてください。
+`sc.exe failure W3SVC` の failure actions は、正常に `SERVICE_STOPPED` を報告して終了コードが 0 の停止からの自動再開を保証しません（[Microsoft の failure actions の条件](https://learn.microsoft.com/windows/win32/api/winsvc/ns-winsvc-service_failure_actions_flag)）。
+適用条件と副作用を確認し、検証していない設定変更を自動復旧策として確定しないでください。
 
 ## Runbook 生成用プロンプト
 
