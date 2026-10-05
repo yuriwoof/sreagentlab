@@ -58,7 +58,7 @@ RDP が必要な場合だけ `enableRdpPublicIp=true` と、実際の接続元�
 | 5 | ディスク IO 圧迫 | Chaos: `run-chaos.sh diskio`、vm-01 / 10 分 | IOPS 消費率とキュー増大、遅延の可能性 | OS ディスク制約と VM 制約の切り分け | `run-chaos.sh stop diskio`、IO と HTTP を確認 |
 | 6 | App Gateway プローブ誤設定 | Script: `break-appgw-probe.sh`、`/health.htm` → `/healthz` | 全バックエンド Unhealthy、502 | 正常な IIS と誤ったプローブパスを切り分け | `fix-appgw-probe.sh`、Healthy と HTTP 200 を確認 |
 | 7 | 定期タスク | 障害注入なし、ポータルで日次タスクを作成 | コストと変更履歴のレポート | 読み取り専用で要約し、根拠と未取得データを示す | デモ用タスクを無効化または削除 |
-| 8 | ライブレポート | 障害注入なし、SRE Agent の **ライブ レポート** で状態ダッシュボードをチャットから作成 | 全 VM と Gateway のメトリクス、IIS 停止イベント、実験履歴、アラートを保存済みレポートで一覧化 | 読み取り専用ツールでレポートを作成・保存し、再読み込みで最新化。チャットで直近 30 分の原因候補と証拠を報告 | 不要ならレポートを削除（復旧操作なし） |
+| 8 | ライブレポート | 障害注入なし、SRE Agent の **ライブ レポート** で状態ダッシュボードをチャットから作成 | 全 VM と Gateway のメトリクス、IIS 停止イベント、実験の操作履歴、アラートルールの構成変更履歴（発報状態ではない）を一覧化 | 読み取り専用ツールでレポートを作成・保存し、再読み込みで最新化。チャットで直近 30 分の原因候補と証拠を報告 | 不要ならレポートを削除（復旧操作なし） |
 
 NSG 誤設定では、`break-nsg.sh` が優先度 100 の `ManualDenyAppGatewayHTTP` を作成します。
 既存フローの状態やプローブ間隔により、症状の発生が遅れる場合があります。
@@ -112,7 +112,7 @@ Cookie affinity は無効ですが、リクエストごとに必ず交互に表�
 
 #### 任意: Activity Log を Log Analytics に転送
 
-ライブレポートや定期タスクで Chaos 実験の開始履歴や構成変更を参照する場合は、環境のデプロイ後に Activity Log の転送を有効にします。
+定期タスクなどで LAW の `AzureActivity` から Chaos 実験の開始履歴や構成変更を参照する場合は、環境のデプロイ後に Activity Log の転送を有効にします。標準のライブレポートは `system-mcp-monitor_monitor_activitylog_list` で Activity Log を直接読むため、転送は不要です。
 通常のデプロイには含まれないオプションです。
 
 この操作には Bash、Azure CLI、Python 3 と、対象サブスクリプションで診断設定を作成できる権限が必要です。
@@ -130,7 +130,9 @@ RESOURCE_GROUP=<RG 名> SUBSCRIPTION_ID=<サブスクリプション ID> bash sc
 
 スクリプトは成功した main デプロイの出力から LAW を特定し、サブスクリプションの Activity Log をその LAW に送る診断設定を作成します。
 転送前の履歴は取り込まれず、反映には数分かかる場合があります。また、LAW のデータ取り込み費用が発生する可能性があります。
-このため、シナリオ 7 または `AzureActivity` を使うライブレポートを実施する場合だけ有効にしてください。
+このため、シナリオ 7 など `AzureActivity` を LAW で検索する場合だけ有効にしてください。
+標準のライブレポートで表示するアラートルールの構成変更履歴は、発報状態の `Fired` / `Resolved` とは異なります。発報状態は Azure Monitor のアラート画面で確認してください（[ライブレポートのプロンプトと制約](docs/sre-agent-setup.md#手順-3-ライブレポートで状態ダッシュボードを作成)）。
+別名の診断設定が既に同じ LAW に Activity Log を転送している場合、スクリプトは重複を避けるため停止します。
 
 診断設定はラボ RG の外にあるため、RG を直接削除しても残ります。
 終了時は `scripts/cleanup.sh` を使用すると、このラボ用の設定名と送信先 LAW が一致する場合に限り、診断設定を先に削除します。
@@ -141,7 +143,7 @@ RESOURCE_GROUP=<RG 名> SUBSCRIPTION_ID=<サブスクリプション ID> bash sc
 1. デプロイ出力 `sreAgentPortalUrl` を開きます。
 2. [ステップバイステップ ハンズオン](docs/sre-agent-hands-on.md)の共通準備を実施します。
 3. Level 1 で Review モードの対応計画を作成し、単一エージェントの調査を確認します。
-4. Level 2 で調査用・変更レビュー用のサブエージェントと調査スキルを作成します。
+4. Level 2 で 1 つのカスタム エージェントと、調査・修復の 2 つのスキルを作成します。
 5. Level 3 でラボ固有のナレッジを登録し、出典付きの回答を確認します。
 6. ライブレポートや定期タスクも試す場合は、[詳細セットアップ](docs/sre-agent-setup.md)に従います。
 
@@ -153,7 +155,7 @@ RESOURCE_GROUP=<RG 名> SUBSCRIPTION_ID=<サブスクリプション ID> bash sc
 App Gateway の診断設定は `AllMetrics` のみで、アクセスログなどの有効化は不要です。
 レポートは最大 5 分間キャッシュされた結果を表示する場合があるため、デモ中は **再読み込み** を選びます。
 レポートの作成と更新は AAU を消費します。データ取得だけの再読み込みは AAU を消費しませんが、モデルによる要約を含めると再読み込みのたびに消費します。
-実験開始履歴の `AzureActivity` は、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。
+LAW の `AzureActivity` に実験開始履歴を取り込む場合だけ、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。標準のライブレポートは Activity Log を直接照会します。
 手順と権限は[SRE Agent のセットアップ](docs/sre-agent-setup.md)を参照してください。
 
 VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディスクなどの料金は継続します。
