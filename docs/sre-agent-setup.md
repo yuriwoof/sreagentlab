@@ -100,51 +100,31 @@ SRE Agent を初めて開くと、オンボーディング画面が表示され�
 | レポートを作成する利用者の権限 | エージェントに対する読み書き権限が必要です。`main.bicep` はデプロイ実行者に **SRE Agent Administrator** を割り当てます。 |
 | レポートを閲覧する利用者の権限 | 共有先にも **SRE Agent Standard User** または **SRE Agent Administrator** が必要です。リンクを共有しても権限は付与されません。 |
 | エージェントのデータアクセス | エージェントのマネージド ID には、ラボ RG の Reader と Log Analytics Reader を割り当てています（[sre-agent.bicep](../modules/sre-agent.bicep)）。 |
-| ゲストログ | **Log Analytics コネクタが必要です**。ライブレポートは設定済みのコネクタのツールだけを呼び出します。`main.bicep` では作成しないため、[Log Analytics コネクタを追加する](#log-analytics-コネクタを追加する)の手順で追加します（[コネクタ](https://learn.microsoft.com/azure/sre-agent/connectors)）。 |
-| Azure Monitor のプラットフォームメトリクス | Log Analytics コネクタだけで `Percentage CPU`、OS ディスクメトリクス、Application Gateway メトリクスを取得できるとは限りません。接続後に、Azure Monitor メトリクスを取得する読み取り専用ツール（例: `Monitor Metrics Query`）が利用可能か確認します。ツールの名前と提供元は環境によって異なります。 |
-| Azure Monitor アラート状態 | `Fired` / `Resolved` は Alerts Management のアラート状態から取得します。Activity Log の規則作成・変更履歴は発報状態の代わりになりません。Alerts Management の読み取りツールがなければ、アラート一覧を「未取得」と表示し、別途承認された読み取りアクセスを用意します。 |
+| レポートの取得ツール | 実機で利用できた `system-mcp-monitor` の `monitor_metrics_query`、`monitor_workspace_log_query`、`monitor_activitylog_list` の 3 つを、レポート作成時のツール一覧と実行結果で確認します。ユーザーが追加した MCP コネクタとして **ビルダー** → **コネクタ** に表示されるとは限りません。 |
+| Azure Monitor のプラットフォームメトリクス | `monitor_metrics_query` で VM と Application Gateway のメトリクスを取得します。`max-buckets` を 60 に指定し、期間に合うサンプル間隔を選びます。 |
 | ゲストのログ | AMA と DCR が `Perf`（CPU、メモリ、ディスク、ネットワーク）と `Event`（Service Control Manager 7036）を LAW に送ります。 |
-| Chaos 実験の履歴（任意） | `AzureActivity` を使う場合は、[手順 5](#手順-5-毎朝-9-時-jst-の定期タスクを作成)に記載した `enable-activity-log.sh` でサブスクリプションの Activity Log を LAW に転送します。 |
+| LAW のログ | `monitor_workspace_log_query` でラボ LAW の `Perf` / `Event` を取得します。ワークスペース ID（GUID）とデプロイ出力 `lawId`（ARM リソース ID）は異なります。 |
+| Activity Log の履歴 | `monitor_activitylog_list` で既知の Chaos 実験とアラートルールの操作履歴を直接取得します。このレポートのために LAW への Activity Log 転送は不要です。ツールがリソース名を要求する環境では、対象を実際の名前で列挙します。 |
+| アラートの発報状態 | この 3 ツールには Alerts Management のアラート インスタンス取得機能がないため、`Fired` / `Resolved` はレポートに表示しません。Azure Monitor の **アラート** で別途確認します。 |
 
-レポートは、エージェントに設定済みのコネクタと、そのマネージド ID に付与された権限の範囲でのみデータを取得できます。
-チャットで使える組み込みツールがあっても、コネクタがなければレポートを開くたびにデータを再取得できません。
-レポートを作成しても、コネクタの追加や他システムへのアクセス権の付与は行われません。
+Azure 監視系には[コネクタ追加が不要な組み込みツール](https://learn.microsoft.com/azure/sre-agent/tools#built-in-tools)もあります。ライブレポートは作成時に利用できたツールでデータを取得し、保存した構成に従って再読み込みします（[ライブレポート](https://learn.microsoft.com/azure/sre-agent/live-reports#how-live-reports-work)）。`system-mcp-monitor` というツール名だけからユーザーが MCP コネクタを作成したとは判断しません。
+ツールの実行には対象リソースへの読み取り権限が必要です。レポート作成時のツール承認は呼び出しを許可する操作であり、新しいコネクタの作成や RBAC の付与ではありません。
 
-### Log Analytics コネクタを追加する
+### レポート用 Azure Monitor ツールを確認する
 
-レポートを作成する前に、ラボの LAW（出力 `lawName`、既定は `<prefix>-law-<ランダム 6 文字>`）に接続するコネクタを追加します。
+実機では `system-mcp-monitor` から次の 3 つの読み取りツールが提供されました。**Capabilities** → **Tools** で利用可能なツールを探し、さらにレポート作成時に提示されるツールと実行結果を確認します（[ツール一覧](https://learn.microsoft.com/azure/sre-agent/global-tools-page)）。**ビルダー** → **コネクタ** に `system-mcp-monitor` が表示されなくても、それだけではツール未提供とは判断しません。
 
-1. エージェントの **ビルダー** → **コネクタ** を開き、**+ コネクタの追加** を選びます。
-2. **テレメトリ** タブで **Log Analytics ワークスペース** を選び、**次へ** を選びます。
+| `allowedTools` に指定するツール | 用途 |
+|---|---|
+| `system-mcp-monitor_monitor_metrics_query` | VM / Application Gateway のメトリクス |
+| `system-mcp-monitor_monitor_workspace_log_query` | LAW の `Perf` / `Event` |
+| `system-mcp-monitor_monitor_activitylog_list` | Chaos 実験とアラートルールの Activity Log |
 
-   ![コネクタの選択で Log Analytics ワークスペースを選ぶ](./imgs/sreagentconnector1.png)
+1. デプロイ出力の `lawName` と `experimentNames`、実際の VM / Application Gateway 名を確認します。LAW のワークスペース ID（GUID）は Azure ポータルで確認します。`lawId` は ARM リソース ID なのでワークスペース ID の欄に入力しません。
+2. Azure Monitor の **アラート ルール** でラボ RG を絞り、変更履歴に含めたいルールの名前を確認して控えます。ツールがリソース名を必須とする場合、ワイルドカードでは追加の実験やルールを自動検出できません。前回の実機では 4 実験と 8 ルールを対象にしましたが、デプロイごとの実在リソースでリストを作り直します。
+3. レポート作成時の `allowedTools` と実際のツール呼び出しを確認し、3 ツールの実行結果を対象サブスクリプション、RG、LAW と照合します。ツールがない、失敗する、または権限が不足する場合は作成を止め、必要な読み取りアクセスを管理者に確認します。書き込み可能なツールやサブスクリプション Contributor を代替として追加しません。
 
-3. 次の値を入力し、**次へ** を選びます。
-
-   | 項目 | 値 |
-   |---|---|
-   | 名前 | 任意（例: `srelab-law`） |
-   | サブスクリプション / リソース グループ | ラボをデプロイしたサブスクリプションと RG |
-   | Log Analytics ワークスペース | 出力 `lawName` のワークスペース |
-   | マネージド ID | `<prefix>-sre-identity` |
-
-   保存すると、エージェントに対象 RG の Log Analytics 閲覧者ロールが付与されます。
-   `main.bicep` でも同じロールを割り当てているため、権限は増えません。
-
-   ![Log Analytics コネクタの設定](./imgs/sreagentconnector2.png)
-
-4. **確認と追加** で内容を確認し、**コネクタの追加** を選びます。
-
-   ![確認と追加でコネクタの追加を選ぶ](./imgs/sreagentconnector3.png)
-
-5. コネクタの一覧で、状態が **Connected** になったことを確認します。
-
-   ![コネクタ一覧で srelab-law が Connected](./imgs/sreagentconnector4.png)
-
-5. ライブレポートが利用できる読み取り専用ツール一覧を確認します。接続済みのコネクタ名だけで判断せず、レポートが必要とする Azure Monitor メトリクス、Alerts Management、Log Analytics の各データを取得するツールがあることを確認してください。
-   メトリクス取得ツールがない場合は、サポートされている Azure Monitor コネクタと必要最小限の権限を管理者と確認してから追加します。
-   追加できないデータはレポートで未取得と表示し、Perf の値や Activity Log の記録で代用しません。
-   検証した環境では `system-mcp-monitor` が `Monitor Metrics Query` を提供しました。これはその環境での確認結果であり、すべてのエージェントで同じコネクタやツールが提供される保証ではありません。
+個別の Log Analytics コネクタは、この 3 ツールが利用できる環境では状態ダッシュボードの必須条件ではありません。追加のデータソースが必要なときだけ、その接続方法と権限を別途確認します。
 
 ### レポートの内容
 
@@ -157,8 +137,8 @@ SRE Agent を初めて開くと、オンボーディング画面が表示され�
 | App Gateway バックエンド | `HealthyHostCount`、`UnhealthyHostCount` | 正常と異常の台数、ステータス表示 |
 | App Gateway リクエスト | `TotalRequests`、`ResponseStatus` と `BackendResponseStatus`（`HttpStatusGroup = 5xx`） | リクエスト数、Gateway の 5xx と IIS の 5xx の区別 |
 | IIS 停止イベント | LAW `Event`（System、Service Control Manager、Event ID 7036、W3SVC、stopped） | VM、時刻、メッセージの一覧 |
-| Chaos 実験の開始履歴 | LAW `AzureActivity`（`Microsoft.Chaos/experiments/start/action`） | 実験名、開始時刻、状態、実行者 |
-| アラート | Alerts Management の `monitorCondition` | ラボ RG の `Fired` / `Resolved`、重大度、対象、発報時刻。人手による acknowledge / close 状態とは分けて表示 |
+| Chaos 実験の操作履歴 | Azure Monitor Activity Log（既知の実験名ごとの start / cancel アクション） | 実験名、操作時刻、操作結果。これだけで実験の現在の実行状態を断定しない |
+| アラートルールの構成変更履歴 | Azure Monitor Activity Log（既知のルール名ごとの操作） | ルール名、操作時刻、操作結果。`Fired` / `Resolved` の発報状態や通知履歴ではないことを明記 |
 
 App Gateway の診断設定は `AllMetrics` を LAW に送ります。
 ただし `AzureMetrics` テーブルにはディメンションが含まれないため、5xx の内訳は Azure Monitor メトリクスから取得します。
@@ -169,57 +149,68 @@ VM と Gateway のプラットフォームメトリクスは Azure Monitor メ�
 
 ### 作成手順
 
+先に、[レポート用 Azure Monitor ツール](#レポート用-azure-monitor-ツールを確認する)が利用できることと、対象リソース名を確認します。3 ツールのいずれかが使えなければ作成を保留します。`Fired` / `Resolved` は本レポートの対象外です。
+
 1. デプロイ出力 `sreAgentPortalUrl`（`deploy.sh` の場合は表示される **SRE Agent** のリンク）からエージェントを開きます。
 2. ナビゲーションで **ライブ レポート** を選びます。
 3. **+ 新しいレポート** を選びます。エージェントが利用可能なツールを確認します。
 4. 下記のプロンプトを入力し、エージェントからの追加の質問に答えます。
-5. エージェントが「コネクタが設定されていない」と尋ねた場合は、**Static snapshot report** を選ばずにコネクタを設定します。
-   静的なレポートは、再読み込みしてもデータが更新されません。
+5. レポートが使用するツールの承認を求められたら、ツール名と引数を照合し、読み取り専用の 3 ツールだけを承認します。下の画面では、確認後に **一度のみ許可** を選びます。この承認は新しいコネクタの追加ではありません。
 
-   ![コネクタ未設定時のエージェントの質問](./imgs/sreagentlr1.png)
+   ![レポートが呼び出す 3 つの読み取りツールの承認画面](./imgs/sreagentlr1.png)
 
-   エージェントは ADX (Kusto) コネクタを提案することがありますが、LAW には専用の Log Analytics コネクタのほうが簡単です。
-   [Log Analytics コネクタを追加する](#log-analytics-コネクタを追加する)の手順で追加し、**Done, connector is set up** を選んで完了を伝えます。
-   エージェントが新しいコネクタを検出し、KQL クエリでレポートを作り直します。
-
-   ![コネクタ追加後に Done, connector is set up を選ぶ](./imgs/sreagentlr2.png)
-
-6. レポートが開くたびに呼び出すツールの承認を求められます。ツール名とデータソースを照合し、**読み取り専用のツールだけを承認**します。必要なデータを取得するツールがない場合、権限を広げて代用せず、該当項目を未取得にします。
-
-   ![レポートが呼び出すツールの承認画面](./imgs/sreagentlr3.png)
+6. ツールが呼び出せない場合は、権限を広げて代用したり、警告カードのあるレポートを完成扱いにしたりせず、保存を保留します。
 
 7. レポートが保存され、ギャラリーに表示されるまで待ちます。
 
 #### プロンプト例 1: ラボの状態ダッシュボード
 
-`<RG>`、`<prefix>`、`<LAW 名>` は、デプロイ出力の `resourceGroupName`、パラメータの `prefix`、出力の `lawName` に置き換えます。
+`<サブスクリプション ID>`、`<RG>`、`<prefix>`、`<LAW 名>`、`<ワークスペース ID>` を対象環境に置き換えます。`<ワークスペース ID>` は GUID で、デプロイ出力の `lawId` とは異なります。`<実験名の一覧>` はデプロイ出力の `experimentNames`、`<アラートルール名の一覧>` は実際のアラート ルールを確認して入力します。実機の名前や ID を別環境にコピーしないでください。
 
 ```text
-「SRE Lab Live Status」という名前のライブレポートを作成してください。
-対象はリソースグループ <RG> の Windows VM（<prefix>-vm-01、<prefix>-vm-02 …）と
-Application Gateway <prefix>-appgw です。既定の期間は直近 1 時間とし、期間セレクターを付けてください。
+live_report_authoring スキルを読み込んで「SRE Lab Live Status」という名前のライブレポートを作成してください。
+対象はサブスクリプション <サブスクリプション ID>、リソースグループ <RG> の
+Windows VM（<prefix>-vm-01、<prefix>-vm-02 …）と Application Gateway <prefix>-appgw です。
+LAW は <LAW 名>（ワークスペース ID: <ワークスペース ID>）です。
+Chaos 実験は <実験名の一覧>、アラートルールは <アラートルール名の一覧> だけを対象にしてください。
+既定の期間は直近 1 時間とし、期間セレクター（1h / 3h / 6h / 12h / 24h）を付けてください。
+allowedTools は次の読み取り専用ツールだけにしてください:
+system-mcp-monitor_monitor_metrics_query
+system-mcp-monitor_monitor_workspace_log_query
+system-mcp-monitor_monitor_activitylog_list
+いずれかが利用できない場合はレポートを保存せず、原因を報告して停止してください。
 
 1. VM ごとの時系列チャート（Azure Monitor メトリクス）:
    Percentage CPU、OS Disk IOPS Consumed Percentage、OS Disk Queue Depth、
-   Network In Total、Network Out Total
+   Network In Total、Network Out Total。
+   monitor_metrics_query の max-buckets は 60 に設定し、時間範囲に合う粒度にしてください
+   （例: 1h は PT5M、24h は PT1H）。ネットワーク値は Total 集計の Bytes を
+   1 MB = 1,000,000 Bytes として MB に変換し、集計間隔と単位を表示してください
 2. VM ごとの空きメモリの時系列チャート:
-   Log Analytics ワークスペース <LAW 名> の Perf テーブル、ObjectName "Memory"、CounterName "Available Bytes"（MiB 表示）
+   monitor_workspace_log_query で LAW <LAW 名> の Perf テーブルを照会し、
+   ObjectName "Memory"、CounterName "Available Bytes" を MiB で表示してください
 3. Application Gateway のステータス表示と時系列チャート:
    HealthyHostCount、UnhealthyHostCount、TotalRequests、
    ResponseStatus と BackendResponseStatus の HttpStatusGroup = 5xx を別々のシリーズで表示
    UnhealthyHostCount が 1 以上なら異常のステータスにしてください
    各ホスト状態は同じサンプル時刻と同じバックエンド設定のディメンションで比較してください。
-   期間内最大値を表示する場合は最新値と分け、「期間内最大」と時刻を明記してください
+   期間内最大値を表示する場合は最新値と分け、「期間内最大」と時刻を明記してください。
+   メトリクス照会の max-buckets は 60 にしてください
 4. IIS 停止イベントの表（新しい順）:
-   Event テーブル、System ログ、Source "Service Control Manager"、EventID 7036、
+   monitor_workspace_log_query で LAW <LAW 名> の Event テーブルを照会し、
+   System ログ、Source "Service Control Manager"、EventID 7036、
    W3SVC（World Wide Web Publishing Service）が stopped になったイベント
-5. Chaos 実験の開始履歴の表:
-   AzureActivity テーブルの OperationNameValue "Microsoft.Chaos/experiments/start/action"、
-   ResourceGroup が <RG> のもの。テーブルがない、または空の場合はその旨を表示してください
-6. ラボ RG の Azure Monitor アラート一覧は Alerts Management の `monitorCondition` から取得してください。
-   `Fired` / `Resolved`、重大度、対象、発報時刻を表示し、人手による acknowledge / close 状態とは分けてください。
-   Azure Monitor アラートの読み取りツールが利用できない場合は「未取得」と表示してください。
-   Activity Log のアラート規則の作成・変更・削除履歴を、発報状態の代わりに使用しないでください
+5. Chaos 実験の操作履歴の表:
+   monitor_activitylog_list で <実験名の一覧> の各実験について start / cancel アクションを取得し、
+   実験名、操作時刻、結果を表示してください。名前を省略せず、ワイルドカードを使わないでください。
+   操作履歴だけで現在の実験状態や終了時刻を断定しないでください。
+   このレポートでは AzureActivity の LAW 転送を前提にしないでください
+6. Azure Monitor アラートルールの「構成変更履歴」の表:
+   monitor_activitylog_list で <アラートルール名の一覧> の各ルールの書き込み・削除等の
+   操作を取得し、ルール名、操作時刻、結果を表示してください。
+   Azure Monitor アラートの発報・解消状態（Fired / Resolved）ではなく、
+   アラートが存在しない・正常である証拠にもならない旨を表の見出しと注意書きに明記してください。
+   現在のアラート状態が必要な場合は Azure Monitor のアラート画面で確認してください。
 
 データはコネクタとツールの結果だけで表示し、モデルによる要約セクションは作成しないでください。
 リソースを変更するボタンやアクションは追加せず、読み取り専用のツールだけを使用してください。
@@ -233,8 +224,41 @@ Application Gateway <prefix>-appgw です。既定の期間は直近 1 時間と
 ![alt text](./imgs/sreagentlr4.png)
 
 レポートの保存後は、画面上で値が表示されることだけで合格にしません。
-生成された HTML と読み取りツールの応答を照合し、Alerts Management の状態と Activity Log の規則変更を混同していないこと、Healthy と Unhealthy が同じ時刻とディメンションを使うこと、有効サンプルがない指標を 0 と表示していないことを確認します。
-これらを確認できない項目は、受入済みとせず「未確認」または「未取得」と記録します。
+生成された HTML と 3 ツールの応答を照合し、アラートルールの構成変更履歴を `Fired` / `Resolved` と混同していないこと、指定した実験・ルール名を個別に照会したこと、Healthy と Unhealthy が同じ時刻とディメンションを使うこと、有効サンプルがない指標を 0 と表示していないことを確認します。
+履歴が空でも、ツールが成功して 0 件だったのか、ツール未提供やアクセス エラーだったのかを区別します。`max-buckets=60` で 1h と 24h を試し、400 エラーがなく、ネットワーク値が Total 集計から MB に換算されていることを確認します。
+
+#### Activity Log の履歴が空の場合
+
+Chaos 実験とアラートルールの 2 つの表は、`monitor_activitylog_list` で Activity Log を直接照会します。`AzureActivity` に行があることや、LAW への診断設定は必要条件ではありません。確認できるのは対象リソースに対する操作の履歴であり、実験の現在の状態やアラートの発報状態ではありません。
+
+1. `system-mcp-monitor_monitor_activitylog_list` がレポートの `allowedTools` に入り、各実験・ルールを実際の名前で照会しているか確認します。サブスクリプション、RG、期間、操作種別、読み取り権限を照合します。ツール実行が成功して 0 件なら「期間内に記録された操作なし」、失敗ならエラーとして扱い、「アラートなし」とは言いません。
+2. 既存のレポートに「Azure Monitor アラート読み取りツールが利用できません」と表示される場合、それは旧プロンプトで要求した `Fired` / `Resolved` の一覧です。**作成スレッドを開く** から次を依頼し、保存された新しいバージョンの取得元と見出しを確認します。
+
+   ```text
+   保存済みの「SRE Lab Live Status」を新しい標準プロンプトの構成に更新してください。
+   旧「Azure Monitor アラート」の警告カードは削除し、
+   <アラートルール名の一覧> の各ルールを system-mcp-monitor_monitor_activitylog_list で
+   個別に照会して「アラートルールの構成変更履歴」として表示してください。
+   Fired / Resolved の発報状態とは異なることを見出しと注意書きに明記してください。
+   <実験名の一覧> の start / cancel も同ツールで個別に照会してください。
+   VM、Gateway、Perf、Event の他の表は維持してください。
+   読み取りツールが利用できない場合は新しいバージョンを保存せず、
+   使えなかったツールとエラーを報告してください。設定やリソースは変更しないでください。
+   ```
+
+3. LAW の `AzureActivity` は、転送を有効にした場合にだけ使える別の履歴ソースです。定期タスクなどでこのテーブルを利用する場合は、対象サブスクリプションの診断設定の送信先、`Administrative` カテゴリと、設定後のイベントを確認します。
+
+   ```kusto
+   AzureActivity
+   | where TimeGenerated > ago(3h)
+   | where ResourceGroup =~ "<RG>"
+   | project TimeGenerated, CategoryValue, OperationNameValue, ResourceGroup, ResourceId
+   | order by TimeGenerated desc
+   ```
+
+   設定前のイベントは遡って転送されません。テーブル自体がない場合も「履歴未取得」です。新しい操作の後も空なら、サブスクリプション、送信先 LAW、カテゴリー、対象期間と取り込み遅延を確認します。`AzureActivity` に行があっても `Fired` / `Resolved` の状態を取得した証拠にはなりません。
+
+手動で `export-activity-to-law` など別名のサブスクリプション診断設定を作成した場合は、[任意の転送スクリプト](../README.md#任意-activity-log-を-log-analytics-に転送)を重ねて実行しないでください。同じ LAW への重複転送を避けるため、スクリプトは既存の別名設定を検出すると停止します。また、[`cleanup.sh`](../scripts/cleanup.sh) で自動削除するのはラボの規定名だけです。別名の設定は、管理者が所有者と用途を確認して管理します。
 
 モデルによる要約や分析のセクションは、更新のたびに AAU を消費します。
 このため、状態ダッシュボードは表示のみで作成し、原因分析はチャットで個別に依頼します。
@@ -242,18 +266,23 @@ Application Gateway <prefix>-appgw です。既定の期間は直近 1 時間と
 #### プロンプト例 2: 障害デモ用タイムライン
 
 障害注入の前後を 1 画面で比較する場合に作成します。
+`<RG>`、`<prefix>` と `<実験名の一覧>` を対象環境に置き換えます。実験名はデプロイ出力 `experimentNames` を確認します。
 
 ```text
 「SRE Lab Incident Timeline」という名前のライブレポートを作成してください。
 対象はリソースグループ <RG> です。既定の期間は直近 3 時間とし、期間セレクターを付けてください。
 
-- Chaos 実験の開始と終了（Chaos Studio の実験の実行履歴、または AzureActivity）
+- <実験名の一覧> の各 Chaos 実験の開始 / キャンセル操作履歴
+  （system-mcp-monitor_monitor_activitylog_list。操作履歴から現在の実行状態を推測しない）
 - Application Gateway の UnhealthyHostCount と ResponseStatus 5xx の時系列
 - <prefix>-vm-01 と <prefix>-vm-02 の Percentage CPU、OS Disk IOPS Consumed Percentage の時系列
 - W3SVC 停止イベント（Event、Service Control Manager、7036）
-- NSG <prefix>-nsg と Application Gateway の構成変更（AzureActivity の書き込み操作と削除操作）
+- NSG <prefix>-nsg と Application Gateway <prefix>-appgw の構成変更
+  （system-mcp-monitor_monitor_activitylog_list で対象名を指定し、書き込み・削除を確認）
 
 これらを同じ時間軸に並べてください。
+メトリクス照会の max-buckets は 60 にしてください。
+ツールが提供されず履歴を取得できない場合は未取得と報告し、推測で補わないでください。
 表示のみとし、モデルによる要約、リソース変更のボタンやアクションは追加しないでください。
 ```
 
@@ -333,7 +362,8 @@ Event
 ```
 
 ```kusto
-// Chaos 実験の開始履歴 (任意の Activity Log 転送が必要)
+// 任意の Activity Log 転送を有効にした場合の Chaos 開始履歴。
+// 標準のライブレポートでは AzureActivity ではなく monitor_activitylog_list を使用する。
 AzureActivity
 | where TimeGenerated > ago(24h)
 | where ResourceGroup =~ "<RG>"
@@ -346,11 +376,13 @@ AzureActivity
 
 | 症状 | 確認すること |
 |---|---|
-| 「コネクタが設定されていない」と表示される | [Log Analytics コネクタ](#log-analytics-コネクタを追加する)を追加し、状態が Connected か |
+| 「コネクタが設定されていない」と表示される | [レポート用 Azure Monitor ツール](#レポート用-azure-monitor-ツールを確認する)が作成時の一覧にあり、実際に呼び出せるか。**ビルダー** → **コネクタ** に `system-mcp-monitor` がないだけで接続不足と判断しない |
 | エージェントがレポートを作成できない | 利用者にエージェントの読み書き権限があるか、必要なツールとコネクタが正常か |
 | データが古く見える | **再読み込み** でキャッシュを回避したか、データソースに新しいデータが届いているか |
 | メモリやイベントの表が空 | AMA 拡張機能と DCR の関連付け、`Perf` / `Event` の取り込み遅延 |
-| Chaos 実験の履歴が空 | `enable-activity-log.sh` を実行したか。転送は有効化以降の操作のみが対象 |
+| Chaos 実験やルール変更の履歴が空 | `monitor_activitylog_list` で実際の名前を個別に指定したか、対象のサブスクリプション・期間に操作があるか。ツールの取得失敗と成功した 0 件を区別する |
+| 旧レポートに「アラート読み取りツールが利用できない」と出る | [既存レポートの更新](#activity-log-の履歴が空の場合)で、発報状態の欄を別物の「ルール構成変更履歴」に変更する。`Fired` / `Resolved` は Azure Monitor のアラート画面で確認する |
+| メトリクス照会が 400 エラーになる | `monitor_metrics_query` の `max-buckets` を 60 に設定し、期間に合う集計間隔を使う |
 | 5xx が 0 のまま | ブラウザなどでリクエストを送ったか。Gateway が返す 502 は BackendResponseStatus に含まれない |
 | ディスクのメトリクスがない | VM サイズがディスク指標に対応しているか（既定は `Standard_D2s_v5`） |
 
