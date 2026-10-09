@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "2051840780591447553"
+      "templateHash": "17671172165704511613"
     }
   },
   "parameters": {
@@ -58,7 +58,33 @@
     },
     "vmSize": {
       "type": "string",
-      "defaultValue": "Standard_D2s_v5"
+      "defaultValue": "Standard_B2ms"
+    },
+    "enableAutoShutdown": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable daily VM auto-shutdown (deallocate); VMs must be started manually when needed."
+      }
+    },
+    "autoShutdownTime": {
+      "type": "string",
+      "defaultValue": "1900",
+      "minLength": 4,
+      "maxLength": 4,
+      "metadata": {
+        "description": "Daily VM auto-shutdown time in 24-hour HHmm format."
+      }
+    },
+    "autoShutdownTimeZone": {
+      "type": "string",
+      "defaultValue": "Tokyo Standard Time",
+      "allowedValues": [
+        "Tokyo Standard Time"
+      ],
+      "metadata": {
+        "description": "Windows time zone ID used by the VM auto-shutdown schedule."
+      }
     },
     "enableRdpPublicIp": {
       "type": "bool",
@@ -507,6 +533,18 @@
           "vmCount": {
             "value": "[parameters('vmCount')]"
           },
+          "enableAutoShutdown": {
+            "value": "[parameters('enableAutoShutdown')]"
+          },
+          "autoShutdownTime": {
+            "value": "[parameters('autoShutdownTime')]"
+          },
+          "autoShutdownTimeZone": {
+            "value": "[parameters('autoShutdownTimeZone')]"
+          },
+          "autoShutdownNotificationEmail": {
+            "value": "[parameters('alertEmail')]"
+          },
           "enableRdpPublicIp": {
             "value": "[parameters('enableRdpPublicIp')]"
           }
@@ -519,7 +557,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "2059242673461323473"
+              "templateHash": "15978085239478804198"
             }
           },
           "parameters": {
@@ -564,7 +602,7 @@
             },
             "vmSize": {
               "type": "string",
-              "defaultValue": "Standard_D2s_v5",
+              "defaultValue": "Standard_B2ms",
               "metadata": {
                 "description": "VM size supporting the disk metrics used by this lab"
               }
@@ -576,6 +614,35 @@
               "maxValue": 99,
               "metadata": {
                 "description": "Number of IIS VMs"
+              }
+            },
+            "enableAutoShutdown": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Enable daily VM auto-shutdown (deallocate)"
+              }
+            },
+            "autoShutdownTime": {
+              "type": "string",
+              "defaultValue": "1900",
+              "minLength": 4,
+              "maxLength": 4,
+              "metadata": {
+                "description": "Daily VM auto-shutdown time in 24-hour HHmm format"
+              }
+            },
+            "autoShutdownTimeZone": {
+              "type": "string",
+              "defaultValue": "Tokyo Standard Time",
+              "metadata": {
+                "description": "Windows time zone ID used by the VM auto-shutdown schedule"
+              }
+            },
+            "autoShutdownNotificationEmail": {
+              "type": "string",
+              "metadata": {
+                "description": "Email address notified 30 minutes before VM auto-shutdown"
               }
             },
             "enableRdpPublicIp": {
@@ -760,6 +827,35 @@
                 "autoUpgradeMinorVersion": true,
                 "protectedSettings": {
                   "commandToExecute": "[variables('setupCommand')]"
+                }
+              },
+              "dependsOn": [
+                "[format('vms[{0}]', range(0, parameters('vmCount'))[copyIndex()])]"
+              ]
+            },
+            "autoShutdownSchedules": {
+              "copy": {
+                "name": "autoShutdownSchedules",
+                "count": "[length(range(0, parameters('vmCount')))]"
+              },
+              "condition": "[parameters('enableAutoShutdown')]",
+              "type": "Microsoft.DevTestLab/schedules",
+              "apiVersion": "2018-09-15",
+              "name": "[format('shutdown-computevm-{0}', variables('names')[range(0, parameters('vmCount'))[copyIndex()]])]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "status": "Enabled",
+                "taskType": "ComputeVmShutdownTask",
+                "dailyRecurrence": {
+                  "time": "[parameters('autoShutdownTime')]"
+                },
+                "timeZoneId": "[parameters('autoShutdownTimeZone')]",
+                "targetResourceId": "[resourceId('Microsoft.Compute/virtualMachines', variables('names')[range(0, parameters('vmCount'))[range(0, parameters('vmCount'))[copyIndex()]]])]",
+                "notificationSettings": {
+                  "status": "Enabled",
+                  "timeInMinutes": 30,
+                  "emailRecipient": "[parameters('autoShutdownNotificationEmail')]"
                 }
               },
               "dependsOn": [
@@ -1102,7 +1198,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "6121589163243424921"
+              "templateHash": "37954333829718846"
             }
           },
           "parameters": {
@@ -1315,7 +1411,7 @@
                       "streams": [
                         "Microsoft-Perf"
                       ],
-                      "samplingFrequencyInSeconds": 10,
+                      "samplingFrequencyInSeconds": 30,
                       "counterSpecifiers": [
                         "\\Processor Information(_Total)\\% Processor Time",
                         "\\Memory\\Available Bytes",

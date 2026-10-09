@@ -29,7 +29,18 @@ param adminPassword string
 @minValue(1)
 @maxValue(99)
 param vmCount int = 2
-param vmSize string = 'Standard_D2s_v5'
+param vmSize string = 'Standard_B2ms'
+@description('Enable daily VM auto-shutdown (deallocate); VMs must be started manually when needed.')
+param enableAutoShutdown bool = true
+@description('Daily VM auto-shutdown time in 24-hour HHmm format.')
+@minLength(4)
+@maxLength(4)
+param autoShutdownTime string = '1900'
+@description('Windows time zone ID used by the VM auto-shutdown schedule.')
+@allowed([
+  'Tokyo Standard Time'
+])
+param autoShutdownTimeZone string = 'Tokyo Standard Time'
 param enableRdpPublicIp bool = false
 @description('Explicit restricted IPv4 CIDR when RDP is enabled; never use /0 or a wildcard')
 param allowedRdpSource string = '127.0.0.1/32'
@@ -77,6 +88,10 @@ module vm 'modules/vm.bicep' = {
     adminPassword: adminPassword
     vmSize: vmSize
     vmCount: vmCount
+    enableAutoShutdown: enableAutoShutdown
+    autoShutdownTime: autoShutdownTime
+    autoShutdownTimeZone: autoShutdownTimeZone
+    autoShutdownNotificationEmail: alertEmail
     enableRdpPublicIp: enableRdpPublicIp
   }
 }

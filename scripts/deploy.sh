@@ -57,6 +57,13 @@ try:
         raise ValueError("adminUsername must be a non-reserved Windows username, 1..20 letters/digits/_/-, starting with a letter.")
     count=value("vmCount",2)
     if type(count) is not int or not 1<=count<=99: raise ValueError("vmCount must be an integer 1..99.")
+    auto_shutdown=value("enableAutoShutdown",True)
+    if type(auto_shutdown) is not bool: raise ValueError("enableAutoShutdown must be boolean.")
+    shutdown_time=value("autoShutdownTime","1900")
+    if not isinstance(shutdown_time,str) or not re.fullmatch(r"(?:[01][0-9]|2[0-3])[0-5][0-9]",shutdown_time):
+        raise ValueError("autoShutdownTime must be HHmm in 24-hour time.")
+    if value("autoShutdownTimeZone","Tokyo Standard Time")!="Tokyo Standard Time":
+        raise ValueError("autoShutdownTimeZone must be Tokyo Standard Time.")
     enabled=value("enableRdpPublicIp",False)
     if type(enabled) is not bool: raise ValueError("enableRdpPublicIp must be boolean.")
     if enabled:
@@ -114,7 +121,7 @@ with open(sys.argv[2],"w",encoding="utf-8") as f: json.dump(doc,f)
 unset PASSWORD CONFIRM_PASSWORD
 info "Building main.bicep..."
 az bicep build --file "$REPO_ROOT/main.bicep" --stdout > /dev/null || die "Bicep build failed."
-for provider in Microsoft.App Microsoft.AlertsManagement Microsoft.Chaos Microsoft.Insights Microsoft.OperationalInsights Microsoft.Compute Microsoft.Network Microsoft.ManagedIdentity Microsoft.Portal; do
+for provider in Microsoft.App Microsoft.AlertsManagement Microsoft.Chaos Microsoft.Insights Microsoft.OperationalInsights Microsoft.Compute Microsoft.Network Microsoft.ManagedIdentity Microsoft.Portal Microsoft.DevTestLab; do
   az provider register --subscription "$SUBSCRIPTION_ID" --namespace "$provider" --wait --output none ||
     die "Provider registration failed: $provider"
 done
