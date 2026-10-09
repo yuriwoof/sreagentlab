@@ -83,7 +83,7 @@ NSG 誤設定では、`break-nsg.sh` が優先度 100 の `ManualDenyAppGatewayH
 | `lawName` | `<prefix>-law-<ランダム 6 文字>`。削除したリソースグループを再作成した際に、論理削除中のワークスペースが復元されるのを避ける。既存環境へ再デプロイするときは出力 `lawName` の値を指定する（未指定だと新しいワークスペースが作られる） |
 | `enableRdpPublicIp` / `allowedRdpSource` | `false` / `127.0.0.1/32`。RDP 有効化時は接続元の狭い CIDR を明示 |
 | `tags` | `project=sreagentlab`、`env=demo`。タグ対応リソースへ適用 |
-| `sreAgentAccessLevel` / `sreAgentMode` | `High` / `Review`。読み取り専用デモは `Low` / `ReadOnly` を検討 |
+| `sreAgentAccessLevel` / `sreAgentMode` | 既定値はそれぞれ `High` / `Review`。読み取り専用デモでは、それぞれ `Low` / `ReadOnly` を検討 |
 
 ## 設定手順
 

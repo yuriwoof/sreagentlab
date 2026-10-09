@@ -25,8 +25,10 @@ RG 内のリソースが対象であることは、サブスクリプション�
 |---|---|---|
 | `sreAgentAccessLevel` | `High` | SRE ID に対象 RG の Contributor を追加 |
 | `sreAgentMode` | `Review` | 修復提案を確認し、承認後に実行するデモ |
-| 読み取り専用の組み合わせ | `Low` / `ReadOnly` | 調査と読み取り専用のライブレポートのみ |
 | `deployerPrincipalId` | 実行者のユーザーオブジェクト ID | 利用者に SRE Agent Administrator を割り当て（ライブレポートの作成・削除を含む） |
+
+「読み取り専用の組み合わせ」は独立した Bicep 設定ではありません。
+読み取り中心のデモにする場合は、`sreAgentAccessLevel` に `Low`、`sreAgentMode` に `ReadOnly` をそれぞれ指定します。
 
 `High` と `Review` は権限の最小化そのものではありません。
 実装では RG スコープの Contributor を付与するため、読み取り中心のデモでは `Low` / `ReadOnly` を検討します。
