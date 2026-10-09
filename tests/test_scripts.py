@@ -437,7 +437,9 @@ class ScriptTests(unittest.TestCase):
             self.assertEqual(call["mode"], 0o600)
         self.assertFalse(Path(call["secure_file"]).exists())
         self.assert_no_secret_files()
-        self.assertIn("Microsoft.Portal", " ".join(" ".join(c["args"]) for c in self.calls(["provider"])))
+        providers = " ".join(" ".join(c["args"]) for c in self.calls(["provider"]))
+        self.assertIn("Microsoft.Portal", providers)
+        self.assertIn("Microsoft.DevTestLab", providers)
         self.assertEqual(self.calls(["role"]), [])
         self.assertIn("http://192.0.2.10", result.stdout)
         self.assertIn("https://portal.azure.com/#actual-agent", result.stdout)
@@ -462,7 +464,10 @@ class ScriptTests(unittest.TestCase):
         for key, value in (("adminPassword", "stored-secret"),
                            ("alertEmail", "<YOUR_EMAIL_ADDRESS>"),
                            ("adminUsername", "administrator"), ("prefix", "too-long-prefix"),
-                           ("vmCount", 0), ("vmCount", 100), ("vmCount", True)):
+                           ("vmCount", 0), ("vmCount", 100), ("vmCount", True),
+                           ("enableAutoShutdown", "true"), ("autoShutdownTime", "2400"),
+                           ("autoShutdownTime", "7pm"),
+                           ("autoShutdownTimeZone", "UTC")):
             with self.subTest(key=key, value=value):
                 self.params = copy.deepcopy(original)
                 self.params["parameters"][key] = {"value": value}

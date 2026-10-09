@@ -24,7 +24,16 @@
       "value": 2
     },
     "vmSize": {
-      "value": "Standard_D2s_v5"
+      "value": "Standard_B2ms"
+    },
+    "enableAutoShutdown": {
+      "value": true
+    },
+    "autoShutdownTime": {
+      "value": "1900"
+    },
+    "autoShutdownTimeZone": {
+      "value": "Tokyo Standard Time"
     },
     "sreAgentName": {
       "value": "srelab-agent"

@@ -83,7 +83,7 @@ TLS 証明書と HTTPS リスナーは構成していません。
 |---|---|
 | イメージ publisher / offer | `MicrosoftWindowsServer` / `WindowsServer` |
 | SKU / version | `2022-datacenter-azure-edition` / `latest` |
-| サイズ | `Standard_D2s_v5` |
+| サイズ | `Standard_B2ms`（2 vCPU / 8 GiB） |
 | OS ディスク | 127 GiB、Standard HDD LRS（`Standard_LRS`）、ホストキャッシュなし（`None`） |
 | ネットワーク | VM サブネット、NIC への追加 NSG なし |
 | VM Public IP | なし。限定した RDP を明示的に有効化する場合だけ追加 |
@@ -91,10 +91,25 @@ TLS 証明書と HTTPS リスナーは構成していません。
 | ID | システム割り当てと共有ユーザー割り当て |
 
 承認された元イメージは 127 GiB を必要とするため、32 GiB に縮小しません。
-`Standard_D2s_v5` は、このラボで使用するディスクメトリクスに対応する VM サイズとして選択しています。
-サイズを変更する場合は対応指標とクォータを再確認してください。
+`Standard_B2ms` は、2 vCPU / 8 GiB を維持しながら費用を抑えるために選択しています。
+バースト可能 SKU なので、長時間の連続 CPU 負荷では CPU クレジットの影響を受けます。
+サイズを変更する場合を含め、デプロイ先で SKU 在庫、対応するディスク指標、クォータを再確認してください。
 `vm.bicep` はラボ用に `enableAutomaticUpdates=false` としています。
 手動構築でも OS 更新設定を照合し、本番の更新方針へそのまま流用しません。
+
+### 自動シャットダウン
+
+各 VM の **操作 > 自動シャットダウン**で、次を設定します。
+
+| 設定 | 値 |
+|---|---|
+| 有効 | オン |
+| スケジュールされたシャットダウン | `19:00:00` |
+| タイムゾーン | `(UTC+09:00) 大阪、札幌、東京` |
+| シャットダウン前に通知を送信する | オン、30 分前、`alertEmail` と同じ宛先 |
+
+自動シャットダウン後は **停止済み（割り当て解除）**であることを確認します。
+翌日の自動起動は設定せず、演習を始めるときに必要な VM を手動で開始します。
 
 ## 4. IIS の初期化
 
@@ -143,7 +158,7 @@ Windows 用 DCR `srelab-dcr` を作成し、全 VM を関連付けます。
 
 | データソース | 設定 |
 |---|---|
-| パフォーマンス、10 秒間隔 | `\Processor Information(_Total)\% Processor Time` |
+| パフォーマンス、30 秒間隔 | `\Processor Information(_Total)\% Processor Time` |
 | メモリ | `\Memory\Available Bytes`、`\Memory\% Committed Bytes In Use` |
 | ディスク | `\LogicalDisk(*)\% Free Space`、`\LogicalDisk(*)\Disk Reads/sec`、`\LogicalDisk(*)\Disk Writes/sec`、`\LogicalDisk(*)\Avg. Disk Queue Length` |
 | ネットワーク | `\Network Interface(*)\Bytes Received/sec`、`\Network Interface(*)\Bytes Sent/sec` |

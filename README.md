@@ -43,7 +43,9 @@ RDP が必要な場合だけ `enableRdpPublicIp=true` と、実際の接続元�
 
 イメージは `MicrosoftWindowsServer:WindowsServer:2022-datacenter-azure-edition:latest`、OS ディスクは **127 GiB / Standard_LRS / caching=None** です。
 元イメージより小さい 32 GiB へ縮小できません。
-ディスクメトリクスを利用するため、既定の VM サイズは `Standard_D2s_v5` です。
+既定の VM サイズは、2 vCPU / 8 GiB を維持しながら費用を抑える `Standard_B2ms` です。
+バースト可能 SKU のため、長時間の連続 CPU 負荷では CPU クレジットの影響を受けます。
+デプロイ先で SKU の在庫と、ラボで使うディスクメトリクスを確認してください。
 旧 Linux 構成からの OS インプレース変更は対象外です。
 旧環境は必要なデータを退避したうえで別の新規リソースグループに構築してください。
 
@@ -76,7 +78,9 @@ NSG 誤設定では、`break-nsg.sh` が優先度 100 の `ManualDenyAppGatewayH
 |---|---|
 | `prefix` | `srelab`、1～9 文字。英字で始まり英数字で終わる英数字とハイフン。生成する Windows コンピューター名を 15 文字以下にする |
 | `vmCount` | `2`、1～99。`1` では IIS 停止時にフェイルオーバー先がない |
-| `vmSize` | `Standard_D2s_v5`。変更時はディスク指標の対応を確認 |
+| `vmSize` | `Standard_B2ms`（2 vCPU / 8 GiB）。変更時はメモリアラート閾値とディスク指標の対応を確認 |
+| `enableAutoShutdown` | `true`。毎日の VM 自動停止（割り当て解除）を無効にする場合だけ `false` |
+| `autoShutdownTime` / `autoShutdownTimeZone` | `1900` / `Tokyo Standard Time`。毎日 19:00 JST に停止し、起動は手動 |
 | `adminUsername` / `adminPassword` | 管理者名を設定。パスワードはパラメータファイルに保存しない |
 | `alertEmail` | 実際の通知先に変更 |
 | `deployerPrincipalId` | Microsoft Entra ID のユーザー画面にある **オブジェクト ID**。CLI では `az ad signed-in-user show --query id -o tsv` で取得 |
@@ -158,6 +162,15 @@ App Gateway の診断設定は `AllMetrics` のみで、アクセスログなど
 LAW の `AzureActivity` に実験開始履歴を取り込む場合だけ、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。標準のライブレポートは Activity Log を直接照会します。
 手順と権限は[SRE Agent のセットアップ](docs/sre-agent-setup.md)を参照してください。
 
+VM は既定で毎日 19:00 JST に自動停止され、**停止済み（割り当て解除）**になります。
+30 分前の通知は `alertEmail` に送信されます。翌日に自動起動はせず、必要なときだけ Azure portal から開始するか、専用 RG の全 VM を CLI で開始します。
+
+```bash
+mapfile -t VM_IDS < <(az vm list --resource-group "$RESOURCE_GROUP" --query '[].id' -o tsv)
+((${#VM_IDS[@]} > 0)) && az vm start --ids "${VM_IDS[@]}" --no-wait
+```
+
+開始操作自体に追加手数料はありませんが、開始後の VM 稼働時間は課金されます。
 VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディスクなどの料金は継続します。
 料金はリージョンと利用時間で変わるため、固定の合計金額を前提にしないでください。
 
@@ -167,17 +180,33 @@ VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディ�
 
 | リソース | 前提 | 7 日間の概算 (USD) |
 |---|---|---:|
-| Windows VM | `Standard_D2s_v5` × 2、$0.216/時間 | $72.58 |
+| Windows VM | `Standard_B2ms` × 2、$0.136/時間 | $45.70 |
 | Application Gateway | Standard_v2 固定費、$0.29/時間 | $48.72 |
 | Application Gateway 容量ユニット | 1 CU、$0.01/時間 | $1.68 |
 | NAT Gateway | 1 台、約 $0.045/時間 | $7.56 |
 | Standard Static Public IP | 2 個、$0.01/時間/個 | $3.36 |
 | Standard HDD OS ディスク | S10（127 GiB OS ディスク相当）× 2、$5.89/月/個を 168/730 時間で按分 | $2.71 |
-| **固定費合計** |  | **約 $136.61** |
+| **固定費合計** |  | **約 $109.73** |
 
-Log Analytics の `Perf` / `Event` および Application Gateway メトリクスは取り込み量に応じて課金されます。東日本の Log Analytics 取り込み単価は $3.34/GB です。1 週間に 1 GB を取り込む場合、合計は **約 $139.95** です。$1 = 150 円で換算した参考値は、約 **20,000～21,000 円**です。
+VM のサイズ変更だけで、旧構成の固定費約 $136.61 から 7 日あたり約 $26.88（約 20%）削減します。
+さらに毎日 09:00 に手動起動して 19:00 に自動停止する例では、VM は 1 日 10 時間だけ課金され、VM 費は約 $19.04、固定費合計は約 $83.07 です。実際の金額は手動起動時刻で変わります。
+
+Log Analytics の `Perf` / `Event` および Application Gateway メトリクスは取り込み量に応じて課金されます。性能カウンターは 10 秒間隔から 30 秒間隔へ変更し、`Perf` の取り込みを抑えています。東日本の Log Analytics 取り込み単価は $3.34/GB です。連続稼働で 1 週間に 1 GB を取り込む場合、合計は **約 $113.07** です。$1 = 150 円で換算した参考値は、約 **16,500～17,000 円**です。
 
 この概算には、通信量、NAT Gateway のデータ処理量、Application Gateway の追加容量ユニット、Azure Monitor のクエリ・アラート、Chaos Studio の実験実行、SRE Agent の AAU 消費を含めません。Chaos Studio は東日本で $0.10/アクション分です。特に `enable-activity-log.sh` でサブスクリプション Activity Log の転送を有効にすると、LAW の取り込み量が増加します。デプロイ後は Cost Management の実績で確認してください。
+
+### リソース別の削減判断
+
+| リソース | 判断 |
+|---|---|
+| VM | `Standard_B2ms` へ縮小し、毎日 19:00 JST に割り当て解除。長時間 CPU 負荷ではバーストクレジットに注意 |
+| Application Gateway | Standard_v2 はプローブ障害演習の中核なので維持。低価格の Basic はプレビュー、リージョン提供状況、プローブ互換性を検証できた場合の追加候補 |
+| NAT Gateway | VM Extension、Azure Monitor Agent、Chaos Agent の外向き通信に必要なため維持。削除には Private Link 等を含む再設計が必要 |
+| Public IP | Application Gateway と NAT Gateway の 2 個だけを維持。VM の RDP Public IP は既定で無効 |
+| OS ディスク | イメージが 127 GiB を必要とし、既に Standard HDD を使用しているため維持。VM 割り当て解除中も課金 |
+| Log Analytics | `Perf` を 30 秒間隔に抑制。30 日保持、Event 7036、App Gateway の AllMetrics は演習用に維持 |
+| Chaos Studio | 必要な実験だけ手動実行し、不要な反復実行を避ける |
+| SRE Agent | モデル要約付きライブレポート更新と不要な定期タスクを避け、AAU 消費を抑える |
 
 デモ用スケジュールを止め、必要な記録を保存してから、削除対象を確認して実行します。
 

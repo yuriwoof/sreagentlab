@@ -26,12 +26,26 @@ param adminUsername string
 param adminPassword string
 
 @description('VM size supporting the disk metrics used by this lab')
-param vmSize string = 'Standard_D2s_v5'
+param vmSize string = 'Standard_B2ms'
 
 @description('Number of IIS VMs')
 @minValue(1)
 @maxValue(99)
 param vmCount int = 2
+
+@description('Enable daily VM auto-shutdown (deallocate)')
+param enableAutoShutdown bool = true
+
+@description('Daily VM auto-shutdown time in 24-hour HHmm format')
+@minLength(4)
+@maxLength(4)
+param autoShutdownTime string = '1900'
+
+@description('Windows time zone ID used by the VM auto-shutdown schedule')
+param autoShutdownTimeZone string = 'Tokyo Standard Time'
+
+@description('Email address notified 30 minutes before VM auto-shutdown')
+param autoShutdownNotificationEmail string
 
 @description('Attach optional public IPs for RDP; also enable the restricted rule in the network module')
 param enableRdpPublicIp bool = false
@@ -181,6 +195,29 @@ resource iisExtensions 'Microsoft.Compute/virtualMachines/extensions@2024-07-01'
     autoUpgradeMinorVersion: true
     protectedSettings: {
       commandToExecute: setupCommand
+    }
+  }
+}]
+
+// ---------------------------------------------------------------------------
+// Daily cost-control shutdown. Starting a deallocated VM remains a manual step.
+// ---------------------------------------------------------------------------
+resource autoShutdownSchedules 'Microsoft.DevTestLab/schedules@2018-09-15' = [for i in range(0, vmCount): if (enableAutoShutdown) {
+  name: 'shutdown-computevm-${names[i]}'
+  location: location
+  tags: tags
+  properties: {
+    status: 'Enabled'
+    taskType: 'ComputeVmShutdownTask'
+    dailyRecurrence: {
+      time: autoShutdownTime
+    }
+    timeZoneId: autoShutdownTimeZone
+    targetResourceId: vms[i].id
+    notificationSettings: {
+      status: 'Enabled'
+      timeInMinutes: 30
+      emailRecipient: autoShutdownNotificationEmail
     }
   }
 }]
