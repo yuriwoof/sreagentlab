@@ -1,71 +1,71 @@
-# SRE Agent Lab 運用ベースライン
+# SRE Agent Lab Operating Baseline
 
-> 検索言語ごとの結果は文書、インデックス、権限、サービスの状態によって変わる可能性があります。見出しと主要語には英語の別名も併記していますが、日本語クエリの検索結果は実際に確認してください。
+> Search results may vary by query language and by the state of documents, indexes, permissions, and services. Verify the actual search results for English queries.
 > Search keywords: prohibited actions, recovery verification, escalation conditions, first recovery action, IIS stop, CPU spike, memory pressure, NSG misconfiguration, disk IO pressure, probe failure.
 
-| 項目 | 値 |
+| Item | Value |
 |---|---|
-| 対象 | SRE Agent Lab の専用リソースグループ |
-| 用途 | Azure SRE Agent と Chaos Studio を使った非本番の障害対応演習 |
-| 所有者 | ハンズオン実施者 |
-| 最終確認日 | アップロード時に実施者が記入する |
-| 見直し条件 | ラボ構成、アラート、復旧スクリプト、SRE Agent の設定を変更したとき |
+| Scope | Dedicated resource group for the SRE Agent Lab |
+| Purpose | Non-production incident response exercises using Azure SRE Agent and Chaos Studio |
+| Owner | Hands-on lab participant |
+| Last verified | To be completed by the participant at upload time |
+| Review triggers | Changes to the lab configuration, alerts, recovery scripts, or SRE Agent configuration |
 
-## 対象構成
+## Target Architecture
 
-- Windows Server 2022 の IIS VM を Application Gateway のバックエンドに配置する。
-- VM の Public IP は既定で作成しない。
-- VM の通常の管理操作には Azure VM Run Command を使用する。
-- Azure Monitor メトリクス、Log Analytics の `Perf` と `Event`、Azure Monitor アラートを調査に使用する。
-- `AzureActivity` は任意の Activity Log 転送を有効にした後の操作だけを含む。
-- 費用は Cost Management から取得する。`AzureActivity` から費用を推定しない。
+- Place Windows Server 2022 IIS VMs in the Application Gateway backend pool.
+- Do not create public IP addresses for the VMs by default.
+- Use Azure VM Run Command for routine VM administration.
+- Use Azure Monitor metrics, the `Perf` and `Event` tables in Log Analytics, and Azure Monitor alerts for investigations.
+- `AzureActivity` includes only operations performed after optional Activity Log forwarding has been enabled.
+- Retrieve cost data from Cost Management. Do not estimate costs from `AzureActivity`.
 
-## 調査時の境界
+## Investigation Boundaries
 
-1. 対象リソース、期間、取得時刻、データソースを明示する。
-2. 取得できない値を 0 または正常として扱わない。
-3. 確認済みの事実、原因候補、未確認事項を分ける。
-4. 異常な VM と正常な VM を同じ期間で比較する。
-5. Chaos 実験の状態と開始時刻を確認する。
-6. Review モードでは変更を実行せず、対象、差分、影響、最小権限、ロールバック、復旧条件を提示して承認を待つ。
+1. State the target resources, time range, retrieval time, and data sources.
+2. Do not treat unavailable values as zero or healthy.
+3. Separate verified facts, potential causes, and unverified items.
+4. Compare affected and healthy VMs over the same time range.
+5. Check the status and start time of Chaos experiments.
+6. In Review mode, do not make changes. Present the target, proposed changes, impact, least-privilege requirements, rollback plan, and recovery criteria, then wait for approval.
 
-## 障害別の最初の対応 (First recovery action by symptom)
+## First Recovery Action by Symptom
 
-| 症状 | 最初に確認すること | 最初の復旧候補 |
+| Symptom | First checks | First recovery candidate |
 |---|---|---|
-| CPU 高騰 | 全 VM の CPU、Gateway の正常ホスト数、Chaos 実験状態 | CPU 実験の停止 |
-| メモリ圧迫 | `Available Bytes`、`% Committed Bytes In Use`、取り込み時刻 | メモリ実験の停止 |
-| IIS 停止 | W3SVC のイベント、Gateway のバックエンド正常性、IIS 実験状態 | IIS 実験の停止。停止後も未復旧なら承認済みのサービス起動 |
-| NSG 誤設定 | `ManualDenyAppGatewayHTTP` と正常な許可規則の優先順位 | 手動で追加した拒否規則だけを削除 |
-| ディスク IO 圧迫 | IOPS 消費率、キュー深度、ディスク IO 実験状態 | ディスク IO 実験の停止 |
-| Gateway プローブ異常 | IIS の `/health.htm` とプローブのパス | 既知の誤設定 `/healthz` だけを `/health.htm` に戻す |
+| CPU spike | CPU usage across all VMs, Application Gateway healthy host count, and Chaos experiment status | Stop the CPU experiment |
+| Memory pressure | `Available Bytes`, `% Committed Bytes In Use`, and ingestion time | Stop the memory experiment |
+| IIS stopped | W3SVC events, Application Gateway backend health, and IIS experiment status | Stop the IIS experiment. If the service does not recover after the experiment stops, start it with approval |
+| NSG misconfiguration | Priority of `ManualDenyAppGatewayHTTP` relative to the valid allow rule | Delete only the manually added deny rule |
+| Disk IO pressure | IOPS utilization, queue depth, and disk IO experiment status | Stop the disk IO experiment |
+| Application Gateway probe failure | IIS `/health.htm` endpoint and the probe path | Revert only the known misconfiguration from `/healthz` to `/health.htm` |
 
-## 禁止事項 (Prohibited actions)
+## Prohibited Actions
 
-- 複数の構成を同時に変更しない。
-- 原因の証拠なしに VM を再起動、サイズ変更、再作成しない。
-- ディスクを縮小または破壊的に再作成しない。
-- SRE Agent にサブスクリプションの Owner または Contributor を一括付与しない。
-- NSG の `ManualDenyAppGatewayHTTP` 以外の規則を障害復旧の名目で変更しない。
-- Application Gateway のバックエンド、ポート、NSG をプローブ復旧と同時に変更しない。
-- プロンプトの指示だけを RBAC やツールアクセス ポリシーの代わりにしない。
+- Do not change multiple configuration items at the same time.
+- Do not restart, resize, or recreate a VM without evidence of the cause.
+- Do not shrink a disk or recreate it destructively.
+- Do not grant the SRE Agent the Owner or Contributor role at subscription scope.
+- Do not change any NSG rule other than `ManualDenyAppGatewayHTTP` as part of incident recovery.
+- Do not change the Application Gateway backend, port, or NSG while recovering a probe.
+- Do not rely on prompt instructions as a substitute for RBAC or tool access policies.
 
-## 復旧確認 (Recovery verification)
+## Recovery Verification
 
-変更または実験停止の後、次を確認する。
+After making a change or stopping an experiment, verify the following:
 
-1. 対象の Chaos 実験が終了している。
-2. Gateway の全バックエンドが Healthy である。
-3. Gateway 経由の HTTP 応答が 200 である。
-4. 対象メトリクスまたはゲスト状態が平常値へ戻っている。
-5. Azure Monitor アラートが解消している。
-6. 実行者、承認者、変更差分、時刻、結果、未確認事項が記録されている。
+1. The relevant Chaos experiment has ended.
+2. All Application Gateway backends are Healthy.
+3. HTTP requests through Application Gateway return status code 200.
+4. The relevant metrics or guest state have returned to normal.
+5. The Azure Monitor alert has cleared.
+6. The operator, approver, change details, time, result, and unverified items have been recorded.
 
-## エスカレーション条件 (Escalation conditions)
+## Escalation Conditions
 
-- 対象リソースまたは所有者を特定できない。
-- 必要な証拠が権限不足またはデータ欠損で取得できない。
-- 既知の障害注入と一致しない構成差分がある。
-- 復旧操作がラボの専用リソースグループ外へ影響する。
-- ロールバック方法または復旧確認条件を定義できない。
-- 実験停止後も症状が継続する。
+- The target resource or owner cannot be identified.
+- Required evidence cannot be obtained because of insufficient permissions or missing data.
+- A configuration difference does not match a known fault injection.
+- The recovery operation would affect resources outside the lab's dedicated resource group.
+- A rollback procedure or recovery verification criteria cannot be defined.
+- The symptom persists after the experiment stops.
