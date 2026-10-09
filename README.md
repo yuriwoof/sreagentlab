@@ -160,6 +160,25 @@ LAW の `AzureActivity` に実験開始履歴を取り込む場合だけ、省�
 
 VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディスクなどの料金は継続します。
 料金はリージョンと利用時間で変わるため、固定の合計金額を前提にしないでください。
+
+### 東日本で 7 日間保持する場合の概算
+
+2026-10-09 に [Azure Retail Prices API](https://prices.azure.com/api/retail/prices) で確認した東日本 (`japaneast`) の従量課金単価に基づく、既定構成を 7 日間（168 時間）連続稼働した場合の参考値です。契約割引、Azure クレジット、為替、消費税は含みません。
+
+| リソース | 前提 | 7 日間の概算 (USD) |
+|---|---|---:|
+| Windows VM | `Standard_D2s_v5` × 2、$0.216/時間 | $72.58 |
+| Application Gateway | Standard_v2 固定費、$0.29/時間 | $48.72 |
+| Application Gateway 容量ユニット | 1 CU、$0.01/時間 | $1.68 |
+| NAT Gateway | 1 台、約 $0.045/時間 | $7.56 |
+| Standard Static Public IP | 2 個、$0.01/時間/個 | $3.36 |
+| Standard HDD OS ディスク | S10（127 GiB OS ディスク相当）× 2、$5.89/月/個を 168/730 時間で按分 | $2.71 |
+| **固定費合計** |  | **約 $136.61** |
+
+Log Analytics の `Perf` / `Event` および Application Gateway メトリクスは取り込み量に応じて課金されます。東日本の Log Analytics 取り込み単価は $3.34/GB です。1 週間に 1 GB を取り込む場合、合計は **約 $139.95** です。$1 = 150 円で換算した参考値は、約 **20,000～21,000 円**です。
+
+この概算には、通信量、NAT Gateway のデータ処理量、Application Gateway の追加容量ユニット、Azure Monitor のクエリ・アラート、Chaos Studio の実験実行、SRE Agent の AAU 消費を含めません。Chaos Studio は東日本で $0.10/アクション分です。特に `enable-activity-log.sh` でサブスクリプション Activity Log の転送を有効にすると、LAW の取り込み量が増加します。デプロイ後は Cost Management の実績で確認してください。
+
 デモ用スケジュールを止め、必要な記録を保存してから、削除対象を確認して実行します。
 
 ```bash
