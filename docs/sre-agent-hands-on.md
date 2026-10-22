@@ -1,7 +1,12 @@
 # Azure SRE Agent ステップバイステップ ハンズオン
 
 このハンズオンでは、Azure SRE Agent を一度に作り込まず、運用能力を 3 段階で拡張します。
-各レベルは前のレベルの成果を再利用します。最初は必ず **Review** モードと読み取り専用の調査から始めてください。
+各レベルは前のレベルの成果を再利用します。
+最初は必ず **Review** モードと読み取り専用の調査から始めてください。
+
+ラボは README の **Deploy to Azure** ボタンからデプロイすることを前提とします。
+Azure CLI でラボをデプロイし直す必要はありません。
+デプロイ後の障害注入と復旧確認には Bash と Azure CLI を使うため、共通準備で Azure Cloud Shell などの実行環境を用意します。
 
 | レベル | 学ぶこと | 成果物 | 目安 |
 |---|---|---|---|
@@ -15,16 +20,50 @@
 
 ### 1. ラボをデプロイする
 
-1. [README](../README.md#1-deploy-to-azure-でデプロイ)に従って専用リソースグループへデプロイします。
-2. デプロイ出力の `sreAgentPortalUrl`、`resourceGroupName`、`lawName` を記録します。
-3. Gateway URL を開き、IIS のページが HTTP 200 を返すことを確認します。
+1. [README の Deploy to Azure](../README.md#1-deploy-to-azure-でデプロイ)ボタンを選び、Azure portal から専用リソースグループへデプロイします。
+2. 完了画面の **出力** を開きます。画面を閉じた場合は、対象の **リソース グループ** → **デプロイ** から、このテンプレートをデプロイした成功済みの項目を選び、**出力** を開きます。
+3. `sreAgentPortalUrl`、`resourceGroupName`、`lawName`、`appGwName`、`appGwPublicIp`、`vmNames` を記録します。サブスクリプション ID はリソースグループの **概要** で確認します。
+4. ブラウザで `http://<appGwPublicIp の値>/` を開き、IIS のページが表示されることを確認します。
 
-### 2. SRE Agent をオンボードする
+### 2. 実験スクリプトの実行環境を準備する
+
+実験スクリプトの実行には **Bash 環境** が必要です。
+デプロイはブラウザだけで完了しますが、以降の `bash scripts/...` や `az ...` は SRE Agent のチャット欄ではなく、実施者のシェルで実行します。
+
+Azure portal の上部から **Cloud Shell** を開き、**Bash** を選択してください。
+初回起動時の設定は[Azure Cloud Shell の開始手順](https://learn.microsoft.com/azure/cloud-shell/get-started/new-storage)を参照してください。
+ローカルの Git Bash や WSL を使う場合は、Azure CLI と `python3` を用意し、`az login` でサインインします。
+
+Cloud Shell でリポジトリを取得し、そのルートへ移動します。
+すでに取得済みなら、そのフォルダーへ移動してください。
+
+```bash
+git clone https://github.com/yuriwoof/sreagentlab.git
+cd sreagentlab
+```
+
+続いて、ポータルで確認した値を設定し、対象サブスクリプションを選択します。
+`RESOURCE_GROUP` には、Deploy to Azure で指定した実際のリソースグループ名を使います。
+CLI デプロイ用の既定名 `rg-sreagentlab` と同じである必要はありません。
+
+```bash
+export SUBSCRIPTION_ID="<対象のサブスクリプション ID>"
+export RESOURCE_GROUP="<resourceGroupName の値>"
+az account set --subscription "$SUBSCRIPTION_ID"
+az account show --query '{subscription:name,id:id}' -o table
+```
+
+これ以降のシェル操作は、このリポジトリのルートから実行します。
+Cloud Shell を開き直した場合も、フォルダーへの移動と環境変数の設定を行ってください。
+`scripts/deploy.sh` の実行や `main.parameters.local.json` の作成は不要です。
+
+### 3. SRE Agent をオンボードする
 
 1. `sreAgentPortalUrl` を開きます。
 2. [初回オンボーディング](sre-agent-setup.md#手順-1-初回オンボーディングで-azure-monitor-を接続)に従い、インシデント プラットフォームとして **Azure Monitor** を接続します。
 3. [手順 2: `/learn` の実行結果を確認](sre-agent-setup.md#手順-2-learn-の実行結果を確認)に従い、初期状態、管理対象リソース、取得できない情報と権限を確認します。不足がある場合だけ同じスレッドで追加調査します。
 4. エージェントのモードが **Review** であることを確認します。自動修復を試すハンズオンではありません。
+5. [README の月間 AAU 上限設定](../README.md#sre-agent-の月間-aau-上限を設定する)に従い、ハンズオンで使うアクティブ フローの上限と現在の消費量を確認します。
 
 **チェックポイント:** `/learn` の結果に対象 RG、主要リソース、テレメトリの確認時刻、未確認事項が記録され、欠損を正常値として扱っていないこと。
 
@@ -45,14 +84,16 @@ Azure Monitor アラートを SRE Agent にルーティングし、エージェ�
 
 ### 2. CPU 高騰を発生させる
 
-リポジトリのルートから Bash で実行します。複数のラボがある場合は `RESOURCE_GROUP` を指定してください。
+共通準備で設定した Cloud Shell（Bash）などの環境で、リポジトリのルートから実行します。
+`SUBSCRIPTION_ID` と `RESOURCE_GROUP` が今回のラボを指していることを確認してください。
 
 ```bash
 bash scripts/run-chaos.sh start cpu
 bash scripts/run-chaos.sh status cpu
 ```
 
-Azure Monitor の評価と SRE Agent への取り込みを待ちます。5 分の評価窓があっても、必ず 5 分で発報するとは限りません。
+Azure Monitor の評価と SRE Agent への取り込みを待ちます。
+5 分の評価窓があっても、必ず 5 分で発報するとは限りません。
 
 ### 3. エージェントの調査を評価する
 
@@ -103,17 +144,14 @@ CPU の低下、Gateway 経由の HTTP 200、実験終了、アラート解消�
 
 ### ゴール
 
-1 つのカスタム エージェントが、調査と変更レビュー・修復を別フェーズで行います。繰り返し使う調査手順と、承認後に実行する修復手順をスキルとして定義します。
+1 つのカスタム エージェントが、調査と変更レビュー、修復を別フェーズで行います。
+繰り返し使う調査手順と、承認後に実行する修復手順をスキルとして定義します。
+
 Application Gateway のプローブ誤設定を題材に、調査、レビュー、人による承認、変更、復旧確認までを 1 つのインシデント スレッドで確認します。
 
-
-
-
-
-
-
->[!WARNING]
->現在の SRE Agent（workspace mode）では、カスタム エージェント間の新しい引き継ぎ（`handoffs`）を設定できません。設定すると次のエラーになります。
+> [!WARNING]
+> 現在の SRE Agent（workspace mode）では、カスタム エージェント間の新しい引き継ぎ（`handoffs`）を設定できません。
+> 設定すると次のエラーになります。
 >
 >New agent-to-agent handoffs are not supported in workspace mode.
 >Existing handoffs may only be retained or removed.
@@ -127,10 +165,9 @@ Application Gateway のプローブ誤設定を題材に、調査、レビュー
 | `srelab-appgw-probe-remediation` スキル | 変更案を再検証し、合格したプローブ変更を 1 件だけ開始して復旧を確認する手順 | `RunAzCliWriteCommands` |
 | `srelab-triage-agent` | 調査して停止し、実施者の明示的な依頼後に同じスレッドで変更をレビューする | 修復スキル経由のみ |
 
-
-
 変更の承認は、プロンプト上の「承認をお願いします」という文章ではなく、Review モードで Azure の書き込み操作を呼び出したときに表示される **Approve** / **Deny** で行います。
 書き込みツールが実行時に提供されていなければ、承認ボタンは表示されません。
+
 ツールのアクセス ポリシーで Allow を設定した場合などは Review モードの承認を省略できるため、この演習では書き込みツールを Allow で自動承認しません（[ツールのアクセス ポリシー](https://learn.microsoft.com/azure/sre-agent/tool-access-policies)）。
 
 ### 1. 調査スキルを作成する
@@ -195,7 +232,8 @@ NSG に関するアラートまたは障害調査で使用する。
 
 ### 2. 修復スキルを作成する
 
-明示的なレビュー依頼を受けたときだけ使う、承認付きの修復手順を作成します。対象はこのラボのプローブ誤設定 `/healthz` → `/health.htm` だけに限定します。
+明示的なレビュー依頼を受けたときだけ使う、承認付きの修復手順を作成します。
+対象はこのラボのプローブ誤設定 `/healthz` → `/health.htm` だけに限定します。
 
 1. **ビルダー** → **エージェント キャンバス** → **+ 作成** → **スキル** を選択します。
 2. `SKILL.md` を次の内容にします。
@@ -241,7 +279,11 @@ description: 実施者から明示的な変更レビュー依頼を受けた SRE
 3. **ツール** → **ツールを選択する** で、`RunAzCliReadCommands` と `RunAzCliWriteCommands` を選択します。
 4. **作成** を選択し、保存後にスキルの編集画面を開き直して、両ツールが選択済みであることを確認します。
 
-このスキルは、[手順 3](#3-カスタム-エージェントを作成する) で調査スキルとともに 1 つのエージェントに割り当てます。スキルの条件や指示だけでは書き込み権限を分離できません。書き込みの実行可否は Review モードの承認と SRE Agent のマネージド ID の RBAC で制御されます。既定の `sreAgentAccessLevel=High` では、ラボ RG の Contributor が付与されています（[セットアップ](sre-agent-setup.md)）。
+このスキルは、[手順 3](#3-カスタム-エージェントを作成する) で調査スキルとともに 1 つのエージェントに割り当てます。
+
+スキルの条件や指示だけでは書き込み権限を分離できません。
+書き込みの実行可否は Review モードの承認と SRE Agent のマネージド ID の RBAC で制御されます。
+Deploy to Azure の **Sre Agent Access Level** を既定の `High` にした場合、ラボ RG の Contributor が付与されています（[セットアップ](sre-agent-setup.md)）。
 
 ### 3. カスタム エージェントを作成する
 
@@ -298,7 +340,11 @@ description: 実施者から明示的な変更レビュー依頼を受けた SRE
 
 ### 5. プレイグラウンドで調査フェーズをテストする
 
-プレイグラウンドでは、調査フェーズが読み取り専用で進むかだけを確認します。障害注入は不要です。正常な状態では変更案が作られないため、修復スキルと承認ゲートは、実際のアラートで起動する[次のステップ](#6-対応計画をカスタム-エージェントへルーティングして承認付き変更を確認する)で確認します。プレイグラウンドでは修復を依頼しないでください。
+プレイグラウンドでは、調査フェーズが読み取り専用で進むかだけを確認します。
+障害注入は不要です。
+
+正常な状態では変更案が作られないため、修復スキルと承認ゲートは、実際のアラートで起動する[次のステップ](#6-対応計画をカスタム-エージェントへルーティングして承認付き変更を確認する)で確認します。
+プレイグラウンドでは修復を依頼しないでください。
 
 1. エージェント キャンバス の **テスト プレイグラウンド** を開きます。
 2. `srelab-triage-agent` を選び、次を入力します。
@@ -330,13 +376,13 @@ Application Gateway の直近 3 時間のバックエンド正常性とプロー
    また、修復スキルに `RunAzCliWriteCommands` が保存され、`srelab-triage-agent` に両スキルが選択されていることを確認します。
    これは設定の確認であり、スキルを読み込んだ実行時にツールが使えることの確認ではありません。
    書き込みツールに一致する Allow ポリシー（グローバル、カスタム エージェント、スレッド）や承認を省略するフックがある場合は、承認ゲートを確認できないため障害注入を始めません。
-5. Bash で、デプロイ出力の値を設定します。これらはスクリプトの子プロセスにも渡るよう `export` します。
+5. 共通準備で使用した Cloud Shell（Bash）などの環境に戻り、Azure portal のデプロイ画面で記録した値を設定します。`SUBSCRIPTION_ID` と `RESOURCE_GROUP` はスクリプトの子プロセスにも渡るよう `export` します。
 
    ```bash
-   export SUBSCRIPTION_ID="<subscriptionId>"
-   export RESOURCE_GROUP="<resourceGroupName>"
-   APPGW_NAME="<appGwName>"
-   APPGW_IP="<appGwPublicIp>"
+   export SUBSCRIPTION_ID="<対象のサブスクリプション ID>"
+   export RESOURCE_GROUP="<resourceGroupName の値>"
+   APPGW_NAME="<appGwName の値>"
+   APPGW_IP="<appGwPublicIp の値>"
    ```
 
 6. 障害注入の前に、プローブが `/health.htm`、全バックエンドが Healthy、Gateway 経由で HTTP 200 であることを確認します。
@@ -361,7 +407,7 @@ Application Gateway の直近 3 時間のバックエンド正常性とプロー
    VM 名、実行時刻、コマンド、HTTP 応答、Run Command の実行結果を同じインシデント スレッドに提示してください。HTTP 応答を取得できなければ、その事実を記録して調査を止め、Agent に正常性を推測させないでください。
 
    ```bash
-   VM_NAME="<vmName>"
+   VM_NAME="<vmNames の配列に含まれる VM 名を 1 台ずつ指定>"
    az vm run-command invoke --subscription "$SUBSCRIPTION_ID" --resource-group "$RESOURCE_GROUP" \
      --name "$VM_NAME" --command-id RunPowerShellScript \
      --scripts '$sampledAt = (Get-Date).ToUniversalTime().ToString("o"); try { $response = Invoke-WebRequest -Uri "http://localhost/health.htm" -UseBasicParsing -TimeoutSec 30; "sampledAtUtc=$sampledAt status=$([int]$response.StatusCode)" } catch { if ($_.Exception.Response) { "sampledAtUtc=$sampledAt status=$([int]$_.Exception.Response.StatusCode)" } else { throw } }' \
@@ -445,7 +491,9 @@ Review モードの Approve / Deny を待ってください。
 | Approve を選択できない | 承認者に SRE Agent Administrator があるか |
 | 承認後に権限エラーになる | SRE Agent のマネージド ID に対象 Application Gateway の更新権限があるか |
 
-既存のインシデント スレッドでは、新しく保存したエージェント設定への切り替えを前提にしません。もし、エージェントの切り替えが必要になるのでしたら、新しいインシデント スレッドを作成してください。
+既存のインシデント スレッドでは、新しく保存したエージェント設定への切り替えを前提にしません。
+エージェントの切り替えが必要な場合は、新しいインシデント スレッドを作成してください。
+
 ### Level 2 の合格条件
 
 - [ ] 調査スキルと修復スキルが作成された。
@@ -467,7 +515,11 @@ Review モードの Approve / Deny を待ってください。
 
 ### 1. `/learn` が作成したメモリを確認する
 
-`/learn` が作成する `overview.md`、`architecture.md`、`logs.md`、`debugging.md`、`team.md` は、エージェントの **メモリ**（`memories/synthesizedKnowledge/`）に保存されます。スレッドには `Created memory: logs.md` のように表示されます。アップロードした文書を管理する **ナレッジ ソース** には表示されません。`overview.md` は会話の開始時に自動で読み込まれ、その他のファイルは必要に応じて参照されます。
+`/learn` が作成する `overview.md`、`architecture.md`、`logs.md`、`debugging.md`、`team.md` は、エージェントの **メモリ**（`memories/synthesizedKnowledge/`）に保存されます。
+スレッドには `Created memory: logs.md` のように表示されます。
+アップロードした文書を管理する **ナレッジ ソース** には表示されません。
+
+`overview.md` は会話の開始時に自動で読み込まれ、その他のファイルは必要に応じて参照されます。
 
 1. 新しいチャットで次を入力します。
 
@@ -486,7 +538,8 @@ Review モードの Approve / Deny を待ってください。
 
 ![alt text](imgs/knowledge-source.png)
 
-実際の調査結果を記入した Runbook も必要に応じて追加できます。空のテンプレートや未確認の推測はナレッジに登録しないでください。
+実際の調査結果を記入した Runbook も必要に応じて追加できます。
+空のテンプレートや未確認の推測はナレッジに登録しないでください。
 
 ### 3. カスタム エージェントへナレッジ利用を許可する
 
@@ -508,7 +561,11 @@ SRE Agent Lab で IIS 停止が疑われる場合の、最初の復旧操作と�
 
 `sre-lab-operating-baseline.md` には「禁止事項」「復旧確認」「エスカレーション条件」を明記していますが、検索言語ごとの挙動は、文書、インデックス、権限、サービスの状態によって変わる可能性があります。日本語だけのクエリが必ず失敗する、または検索結果がない理由は言語だけだと決めつけないでください。
 
-検索結果を比較するときは、同じ文書と権限を使い、新しい会話から日本語、英語、文書中の英数字の固有語をそれぞれ検索します。各クエリの結果件数、出典、実施日時を記録します。結果がない場合は、ナレッジ ソースのインデックス状態、対象エージェントのアクセス設定、クエリと文書の内容を確認します。確認できていない原因を断定しないでください。
+検索結果を比較するときは、同じ文書と権限を使い、新しい会話から日本語、英語、文書中の英数字の固有語をそれぞれ検索します。
+各クエリの結果件数、出典、実施日時を記録します。
+
+結果がない場合は、ナレッジ ソースのインデックス状態、対象エージェントのアクセス設定、クエリと文書の内容を確認します。
+確認できていない原因を断定しないでください。
 
 回答が `/learn` のメモリ（`debugging.md` など）だけを出典にしている場合は、次を確認します。
 
@@ -537,7 +594,10 @@ Level 1 または Level 2 の調査スレッドで、次を入力します。
 srelab-cpu-investigation-runbook.md として保存してください。
 ```
 
-保存後、**ナレッジ ソース** で **Indexed** を確認し、新しいチャットから検索できることを確認します。ナレッジ ソースに表示されず、スレッドに `Created memory` と表示された場合はメモリに保存されています。その場合は、エージェントが作成した Runbook を Markdown ファイルとして保存し、**Add file** からアップロードします。
+保存後、**ナレッジ ソース** で **Indexed** を確認し、新しいチャットから検索できることを確認します。
+
+ナレッジ ソースに表示されず、スレッドに `Created memory` と表示された場合はメモリに保存されています。
+その場合は、エージェントが作成した Runbook を Markdown ファイルとして保存し、**Add file** からアップロードします。
 
 ![alt text](imgs/uploadedknowledge1.png)
 ![alt text](imgs/uploadedknowledge2.png)
@@ -572,7 +632,8 @@ srelab-cpu-investigation-runbook.md として保存してください。
 | 実行中の Chaos 実験がないことを確認した | [ ] |
 | 必要な調査記録を保存した | [ ] |
 
-ラボを終了する場合は、[README の削除手順](../README.md#監視とコストの注意)に従います。VM の停止だけでは Application Gateway、NAT Gateway、Public IP、ディスクなどの課金は止まりません。
+ラボを終了する場合は、[README の削除手順](../README.md#ラボを削除する)に従います。
+VM の停止だけでは Application Gateway、NAT Gateway、Public IP、ディスクなどの課金は止まりません。
 
 ## 公式ドキュメント
 
