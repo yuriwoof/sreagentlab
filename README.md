@@ -37,15 +37,18 @@ Azure SRE Agent と Chaos Studio を使い、Windows Server 2022 の IIS を調�
 
 VM の Public IP は既定で作成しません。
 NAT Gateway の Public IP は外向き通信専用であり、VM への受信接続には使用できません。
+
 RDP が必要な場合だけ `enableRdpPublicIp=true` と、実際の接続元に限定した `allowedRdpSource`（通常は `/32`）を明示します。
 `*` や `/0` を使った公開は避けてください。
 管理操作は通常、Azure VM Run Command で行います。
 
 イメージは `MicrosoftWindowsServer:WindowsServer:2022-datacenter-azure-edition:latest`、OS ディスクは **127 GiB / Standard_LRS / caching=None** です。
 元イメージより小さい 32 GiB へ縮小できません。
+
 既定の VM サイズは、2 vCPU / 8 GiB を維持しながら費用を抑える `Standard_B2ms` です。
 バースト可能 SKU のため、長時間の連続 CPU 負荷では CPU クレジットの影響を受けます。
 デプロイ先で SKU の在庫と、ラボで使うディスクメトリクスを確認してください。
+
 旧 Linux 構成からの OS インプレース変更は対象外です。
 旧環境は必要なデータを退避したうえで別の新規リソースグループに構築してください。
 
@@ -67,8 +70,9 @@ NSG 誤設定では、`break-nsg.sh` が優先度 100 の `ManualDenyAppGatewayH
 
 ## 前提条件とパラメータ
 
-- **Deploy to Azure** を使う場合、必要なのは Web ブラウザと Azure portal へのサインインだけです。
-- ローカルスクリプトを使う場合は、Bash、Azure CLI（`az`）、Bicep CLI、`python3` とデプロイ用の `mktemp` を用意します。Windows では Git Bash または WSL を使用します。
+- **Deploy to Azure** によるデプロイは、Web ブラウザと Azure portal へのサインインだけで実施できます。
+- デプロイ後の実験スクリプトには、Bash、Azure CLI（`az`）、`python3` が必要です。Azure Cloud Shell の **Bash** を利用できます。[ハンズオンの実行環境の準備](docs/sre-agent-hands-on.md#2-実験スクリプトの実行環境を準備する)に従ってください。
+- 参考手順の Azure CLI でデプロイする場合は、上記に加えて Bicep CLI と `mktemp` を用意します。Windows のローカル環境では Git Bash または WSL を使用します。
 - `jq` は補助的な JSON 確認用に利用できます。現在の運用スクリプトの JSON 解析は `python3` を使用します。
 - ローカルスクリプトでは `az login` 後、対象サブスクリプションを確認します。
 - デプロイ対象 RG にリソース作成権限とロール割り当て権限が必要です。RG の作成やプロバイダー登録は管理者と調整します。
@@ -93,15 +97,19 @@ NSG 誤設定では、`break-nsg.sh` が優先度 100 の `ManualDenyAppGatewayH
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fyuriwoof%2Fsreagentlab%2Fmain%2Fazuredeploy.json)
 
-ボタンを選び、サブスクリプションとリソース グループを指定して、少なくとも次の値を入力します。Bicep、Azure CLI、Bash は不要です。
+ボタンを選び、サブスクリプションとリソース グループを指定して、少なくとも次の値を入力します。
+このデプロイ操作には Bicep、Azure CLI、Bash は不要です。
 このボタンは、公開 GitHub リポジトリの [`azuredeploy.json`](azuredeploy.json) を Azure portal が取得してデプロイします。
 
 - **Admin Password**: 12～123 文字で 3 種類以上の文字種を含み、管理者名を含まない Windows 管理者パスワード
 - **Alert Email**: Azure Monitor アラートの通知先
 - **Deployer Principal Id**: Microsoft Entra ID → **ユーザー** → 自分のユーザーに表示される **オブジェクト ID**
 
-RDP を有効にする場合は、**Allowed Rdp Source** を自分の接続元だけに限定した IPv4 CIDR に変更します。`/0`、ワイルドカード、ループバックは使用しません。
-デプロイには、対象リソースを作成する権限に加えてロール割り当て権限が必要です。プロバイダー登録やリソース グループ作成が許可されていない場合は管理者へ依頼してください。
+RDP を有効にする場合は、**Allowed Rdp Source** を自分の接続元だけに限定した IPv4 CIDR に変更します。
+`/0`、ワイルドカード、ループバックは使用しません。
+
+デプロイには、対象リソースを作成する権限に加えてロール割り当て権限が必要です。
+プロバイダー登録やリソース グループ作成が許可されていない場合は管理者へ依頼してください。
 
 デプロイが完了すると、以下のように AppGW に割り当てたパブリック IP アドレスを Web ブラウザで開くと、展開した HTML ファイルを表示できます。
 
@@ -114,8 +122,10 @@ Cookie affinity は無効ですが、リクエストごとに必ず交互に表�
 
 #### 任意: Activity Log を Log Analytics に転送
 
-定期タスクなどで LAW の `AzureActivity` から Chaos 実験の開始履歴や構成変更を参照する場合は、環境のデプロイ後に Activity Log の転送を有効にします。標準のライブレポートは `system-mcp-monitor_monitor_activitylog_list` で Activity Log を直接読むため、転送は不要です。
+定期タスクなどで LAW の `AzureActivity` から Chaos 実験の開始履歴や構成変更を参照する場合は、環境のデプロイ後に Activity Log の転送を有効にします。
 通常のデプロイには含まれないオプションです。
+
+標準のライブレポートは `system-mcp-monitor_monitor_activitylog_list` で Activity Log を直接読むため、転送は不要です。
 
 この操作には Bash、Azure CLI、Python 3 と、対象サブスクリプションで診断設定を作成できる権限が必要です。
 `az login` 後、リポジトリのルートで実行してください。
@@ -131,9 +141,13 @@ RESOURCE_GROUP=<RG 名> SUBSCRIPTION_ID=<サブスクリプション ID> bash sc
 ```
 
 スクリプトは成功した main デプロイの出力から LAW を特定し、サブスクリプションの Activity Log をその LAW に送る診断設定を作成します。
-転送前の履歴は取り込まれず、反映には数分かかる場合があります。また、LAW のデータ取り込み費用が発生する可能性があります。
+転送前の履歴は取り込まれず、反映には数分かかる場合があります。
+また、LAW のデータ取り込み費用が発生する可能性があります。
 このため、シナリオ 7 など `AzureActivity` を LAW で検索する場合だけ有効にしてください。
-標準のライブレポートで表示するアラートルールの構成変更履歴は、発報状態の `Fired` / `Resolved` とは異なります。発報状態は Azure Monitor のアラート画面で確認してください（[ライブレポートのプロンプトと制約](docs/sre-agent-setup.md#手順-3-ライブレポートで状態ダッシュボードを作成)）。
+
+標準のライブレポートで表示するアラートルールの構成変更履歴は、発報状態の `Fired` / `Resolved` とは異なります。
+発報状態は Azure Monitor のアラート画面で確認してください（[ライブレポートのプロンプトと制約](docs/sre-agent-setup.md#手順-3-ライブレポートで状態ダッシュボードを作成)）。
+
 別名の診断設定が既に同じ LAW に Activity Log を転送している場合、スクリプトは重複を避けるため停止します。
 
 診断設定はラボ RG の外にあるため、RG を直接削除しても残ります。
@@ -153,38 +167,46 @@ RESOURCE_GROUP=<RG 名> SUBSCRIPTION_ID=<サブスクリプション ID> bash sc
 
 状態ダッシュボードには、SRE Agent の[ライブレポート (プレビュー)](https://learn.microsoft.com/azure/sre-agent/live-reports)を使用します。
 ライブレポートはデプロイ後にエージェントのポータルでチャットから作成するもので、Bicep ではデプロイしません（Azure Monitor ブックは使用しません）。
+
 エージェントは組み込みの Azure Monitor メトリクスと、LAW に取り込んだゲストの `Perf` / `Event` を使ってレポートを表示します。
 App Gateway の診断設定は `AllMetrics` のみで、アクセスログなどの有効化は不要です。
+
 レポートは最大 5 分間キャッシュされた結果を表示する場合があるため、デモ中は **再読み込み** を選びます。
-レポートの作成と更新は AAU を消費します。データ取得だけの再読み込みは AAU を消費しませんが、モデルによる要約を含めると再読み込みのたびに消費します。
-LAW の `AzureActivity` に実験開始履歴を取り込む場合だけ、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。標準のライブレポートは Activity Log を直接照会します。
+レポートの作成と更新は AAU を消費します。
+データ取得だけの再読み込みは AAU を消費しませんが、モデルによる要約を含めると再読み込みのたびに消費します。
+
+LAW の `AzureActivity` に実験開始履歴を取り込む場合だけ、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。
+標準のライブレポートは Activity Log を直接照会します。
 手順と権限は[SRE Agent のセットアップ](docs/sre-agent-setup.md)を参照してください。
 
 VM の自動シャットダウンは設定しません。
 VM を停止すると Application Gateway のバックエンドが異常となり、`UnhealthyHostCount` の Sev1 アラートが SRE Agent の応答対象になるためです。
 Review モードでは修復に承認が必要ですが、Autonomous の応答プランでは VM の起動などの復旧操作と計画停止が競合する可能性があります。
+
 VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディスクなどの料金は継続します。
 料金はリージョンと利用時間で変わるため、固定の合計金額を前提にしないでください。
 
-### 東日本で 7 日間保持する場合の概算
+### SRE Agent の月間 AAU 上限を設定する
 
-2026-10-09 に [Azure Retail Prices API](https://prices.azure.com/api/retail/prices) で確認した東日本 (`japaneast`) の従量課金単価に基づく、既定構成を 7 日間（168 時間）連続稼働した場合の参考値です。契約割引、Azure クレジット、為替、消費税は含みません。
+SRE Agent の処理量は **Azure Agent Units（AAU）** で計測されます。
+課金には、エージェントを維持する常時稼働分（always-on flow）と、チャットやインシデント調査などの処理に応じたアクティブ フロー（active flow）があります。
 
-| リソース | 前提 | 7 日間の概算 (USD) |
-|---|---|---:|
-| Windows VM | `Standard_B2ms` × 2、$0.136/時間 | $45.70 |
-| Application Gateway | Standard_v2 固定費、$0.29/時間 | $48.72 |
-| Application Gateway 容量ユニット | 1 CU、$0.01/時間 | $1.68 |
-| NAT Gateway | 1 台、約 $0.045/時間 | $7.56 |
-| Standard Static Public IP | 2 個、$0.01/時間/個 | $3.36 |
-| Standard HDD OS ディスク | S10（127 GiB OS ディスク相当）× 2、$5.89/月/個を 168/730 時間で按分 | $2.71 |
-| **固定費合計** |  | **約 $109.73** |
+ハンズオンを始める前に、SRE Agent ポータルの **設定（Settings）** → **Agent consumption** → **Change AAU allocation** で、月間のアクティブ フロー上限を設定してください。
+設定可能な範囲は **500～1,000,000 AAU** です。
+同じ画面で日別やスレッド別の消費量を確認できます。
 
-VM のサイズ変更だけで、旧構成の固定費約 $136.61 から 7 日あたり約 $26.88（約 20%）削減します。
+上限に達すると、翌月までチャットとアクションを利用できなくなります。
+上限の引き上げは即時反映され、累計消費量を超える値にすると利用を再開できます。
+引き下げは翌月から反映され、それまでは常時稼働分のみの状態になります。
 
-Log Analytics の `Perf` / `Event` および Application Gateway メトリクスは取り込み量に応じて課金されます。性能カウンターは従来どおり 10 秒間隔で収集します。東日本の Log Analytics 取り込み単価は $3.34/GB です。連続稼働で 1 週間に 1 GB を取り込む場合、合計は **約 $113.07** です。$1 = 150 円で換算した参考値は、約 **16,500～17,000 円**です。
+この上限は、常時稼働分や VM、Application Gateway などを含むラボ全体の料金上限ではありません。
+上限に達した場合やエージェントを停止した場合も、エージェントを削除するまでは常時稼働分の課金が継続します。
+詳細は[公式の料金と課金の説明](https://learn.microsoft.com/azure/sre-agent/pricing-billing#set-an-active-flow-spending-limit)を参照してください。
 
-この概算には、通信量、NAT Gateway のデータ処理量、Application Gateway の追加容量ユニット、Azure Monitor のクエリ・アラート、Chaos Studio の実験実行、SRE Agent の AAU 消費を含めません。Chaos Studio は東日本で $0.10/アクション分です。特に `enable-activity-log.sh` でサブスクリプション Activity Log の転送を有効にすると、LAW の取り込み量が増加します。デプロイ後は Cost Management の実績で確認してください。
+Log Analytics の取り込みや Chaos Studio の実験実行なども別途課金されます。
+Activity Log の転送を有効にすると、LAW の取り込み量が増えるため、デプロイ後は Cost Management の実績を確認してください。
+
+### ラボを削除する
 
 デモ用スケジュールを止め、必要な記録を保存してから、削除対象を確認して実行します。
 
@@ -196,6 +218,7 @@ RG 外の任意のサブスクリプション診断設定は RG の削除では�
 `cleanup.sh` は `sreagentlab-activity-${RESOURCE_GROUP}` という**正確な名前と送信先 LAW**を照合し、一致する任意の設定だけを先に削除してから RG 削除を要求します。
 確認時は RG 名を入力し、サブスクリプション診断設定を検査できない場合や送信先が異なる場合は、削除せず停止します。
 RG 削除要求の受付と削除完了は別なので、スクリプトが表示する `az group exists` で完了を確認してください。
+
 ポータルで別名の診断設定を作成した場合は、その設定を管理者が別途確認します。
 共有診断設定を一括削除しないでください。
 
