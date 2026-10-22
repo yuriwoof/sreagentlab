@@ -49,9 +49,7 @@ class TemplateTests(unittest.TestCase):
         self.assertNotIn("sshPublicKey", p)
         self.assertEqual(p["vmCount"]["defaultValue"], 2)
         self.assertEqual(p["vmSize"]["defaultValue"], "Standard_B2ms")
-        self.assertTrue(p["enableAutoShutdown"]["defaultValue"])
-        self.assertEqual(p["autoShutdownTime"]["defaultValue"], "1900")
-        self.assertEqual(p["autoShutdownTimeZone"]["defaultValue"], "Tokyo Standard Time")
+        self.assertEqual(self.module("vm")["parameters"]["vmSize"]["defaultValue"], "Standard_B2ms")
         self.assertEqual(p["location"]["defaultValue"], "japaneast")
         self.assertIn("newGuid()", p["lawName"]["defaultValue"])
         self.assertEqual(
@@ -61,6 +59,17 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(p["tags"]["defaultValue"], {"project": "sreagentlab", "env": "demo"})
         parameters = json.loads((ROOT / "main.parameters.json").read_text(encoding="utf-8"))
         self.assertEqual(parameters["parameters"]["adminPassword"]["value"], "")
+        self.assertEqual(parameters["parameters"]["vmSize"]["value"], "Standard_B2ms")
+
+    def test_no_automatic_vm_shutdown(self):
+        for template in (self.main, self.module("vm")):
+            self.assertFalse(any("shutdown" in name.lower() for name in template["parameters"]))
+            self.assertFalse(any(
+                resource["type"].lower() == "microsoft.devtestlab/schedules"
+                for resource in template["resources"].values()
+            ))
+        parameters = json.loads((ROOT / "main.parameters.json").read_text(encoding="utf-8"))
+        self.assertFalse(any("shutdown" in name.lower() for name in parameters["parameters"]))
 
     def test_windows_vm_storage_and_identity(self):
         vm = self.module("vm")["resources"]["vms"]
@@ -81,16 +90,6 @@ class TemplateTests(unittest.TestCase):
         tag_resource = self.module("vm")["resources"]["osDiskTags"]
         self.assertIn("Microsoft.Compute/disks", tag_resource["scope"])
         self.assertEqual(tag_resource["properties"]["tags"], "[parameters('tags')]")
-        schedule = self.module("vm")["resources"]["autoShutdownSchedules"]
-        self.assertEqual(schedule["condition"], "[parameters('enableAutoShutdown')]")
-        self.assertEqual(schedule["properties"]["taskType"], "ComputeVmShutdownTask")
-        self.assertEqual(schedule["properties"]["dailyRecurrence"]["time"], "[parameters('autoShutdownTime')]")
-        self.assertEqual(schedule["properties"]["timeZoneId"], "[parameters('autoShutdownTimeZone')]")
-        self.assertEqual(schedule["properties"]["notificationSettings"]["timeInMinutes"], 30)
-        self.assertEqual(
-            schedule["properties"]["notificationSettings"]["emailRecipient"],
-            "[parameters('autoShutdownNotificationEmail')]",
-        )
 
     def test_rdp_is_opt_in_and_egress_explicit(self):
         vm = self.module("vm")
@@ -189,7 +188,7 @@ class TemplateTests(unittest.TestCase):
         self.assertNotIn("dashboard", self.main["resources"])
         self.assertNotIn("workbookId", self.main["outputs"])
         dcr = self.module("monitoring")["resources"]["dcr"]["properties"]["dataSources"]
-        self.assertEqual(dcr["performanceCounters"][0]["samplingFrequencyInSeconds"], 30)
+        self.assertEqual(dcr["performanceCounters"][0]["samplingFrequencyInSeconds"], 10)
         counters = dcr["performanceCounters"][0]["counterSpecifiers"]
         for counter in ("\\Memory\\Available Bytes", "\\Network Interface(*)\\Bytes Received/sec",
                         "\\Network Interface(*)\\Bytes Sent/sec"):

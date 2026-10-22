@@ -97,20 +97,6 @@ TLS 証明書と HTTPS リスナーは構成していません。
 `vm.bicep` はラボ用に `enableAutomaticUpdates=false` としています。
 手動構築でも OS 更新設定を照合し、本番の更新方針へそのまま流用しません。
 
-### 自動シャットダウン
-
-各 VM の **操作 > 自動シャットダウン**で、次を設定します。
-
-| 設定 | 値 |
-|---|---|
-| 有効 | オン |
-| スケジュールされたシャットダウン | `19:00:00` |
-| タイムゾーン | `(UTC+09:00) 大阪、札幌、東京` |
-| シャットダウン前に通知を送信する | オン、30 分前、`alertEmail` と同じ宛先 |
-
-自動シャットダウン後は **停止済み（割り当て解除）**であることを確認します。
-翌日の自動起動は設定せず、演習を始めるときに必要な VM を手動で開始します。
-
 ## 4. IIS の初期化
 
 各 VM の Run Command で `RunPowerShellScript` を選び、リポジトリの `scripts/setup-iis.ps1` の内容を実行します。
@@ -158,7 +144,7 @@ Windows 用 DCR `srelab-dcr` を作成し、全 VM を関連付けます。
 
 | データソース | 設定 |
 |---|---|
-| パフォーマンス、30 秒間隔 | `\Processor Information(_Total)\% Processor Time` |
+| パフォーマンス、10 秒間隔 | `\Processor Information(_Total)\% Processor Time` |
 | メモリ | `\Memory\Available Bytes`、`\Memory\% Committed Bytes In Use` |
 | ディスク | `\LogicalDisk(*)\% Free Space`、`\LogicalDisk(*)\Disk Reads/sec`、`\LogicalDisk(*)\Disk Writes/sec`、`\LogicalDisk(*)\Avg. Disk Queue Length` |
 | ネットワーク | `\Network Interface(*)\Bytes Received/sec`、`\Network Interface(*)\Bytes Sent/sec` |
