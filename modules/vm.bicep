@@ -26,7 +26,7 @@ param adminUsername string
 param adminPassword string
 
 @description('VM size supporting the disk metrics used by this lab')
-param vmSize string = 'Standard_D2s_v5'
+param vmSize string = 'Standard_B2ms'
 
 @description('Number of IIS VMs')
 @minValue(1)

@@ -297,7 +297,7 @@ resource vmAlerts 'Microsoft.Insights/metricAlerts@2018-03-01' = [for alert in v
 // ---------------------------------------------------------------------------
 // Guest memory alert – Perf, not an unsupported platform memory metric
 // Average Available Bytes < 3 GiB per VM over five minutes.
-// Tuned for 8 GiB Standard_D2s_v5 (idle ~5.9 GiB, 90% pressure ~0.9 GiB); revisit for smaller sizes.
+// Tuned for 8 GiB Standard_B2ms (idle ~5.9 GiB, 90% pressure ~0.9 GiB); revisit for smaller sizes.
 // ---------------------------------------------------------------------------
 resource memoryAlert 'Microsoft.Insights/scheduledQueryRules@2025-01-01-preview' = {
   name: '${prefix}-low-memory-alert'

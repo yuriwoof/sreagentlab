@@ -17,7 +17,7 @@
 
 ## 設計上の注意
 
-- 指定 Windows Server イメージの OS ディスクは縮小不可。P4/E4 の 32 GiB を強制せず、イメージ最小容量の Standard_LRS とキャッシュ無効で IO 制限を観察する。VM はストレージ制限の観測に適した Standard_D2s_v5 を推奨する。
+- 指定 Windows Server イメージの OS ディスクは縮小不可。P4/E4 の 32 GiB を強制せず、イメージ最小容量の Standard_LRS とキャッシュ無効で IO 制限を観察する。VM は 2 vCPU / 8 GiB を維持して費用を抑える Standard_B2ms を既定とし、デプロイ先で必要なディスク指標を確認する。
 - VM に公開 IP を付けない既定構成では、AMA/Chaos Agent 用に NAT Gateway + 外向き専用 Public IP を追加する。受信公開は App Gateway のみ。
 - App Gateway の cookie affinity 無効化は厳密な交互応答を保証しない。複数回更新して両 VM が観測できることを確認する。
 - App Gateway 診断設定は要件の「AccessLog / PerformanceLog / FirewallLog は不要」に従い AllMetrics を Log Analytics に送る。

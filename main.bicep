@@ -29,7 +29,7 @@ param adminPassword string
 @minValue(1)
 @maxValue(99)
 param vmCount int = 2
-param vmSize string = 'Standard_D2s_v5'
+param vmSize string = 'Standard_B2ms'
 param enableRdpPublicIp bool = false
 @description('Explicit restricted IPv4 CIDR when RDP is enabled; never use /0 or a wildcard')
 param allowedRdpSource string = '127.0.0.1/32'

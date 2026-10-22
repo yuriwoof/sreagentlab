@@ -89,7 +89,7 @@ bash scripts/run-chaos.sh start memory
 
 Available Bytes の減少とブラウザの応答を比較します。
 メモリアラートは `Perf` の 5 分平均が 3 GiB 未満の場合に発報します。
-既定の `Standard_D2s_v5`（8 GiB）では、平常時の空きは約 5.9 GiB、90% 負荷時は約 0.9 GiB です。
+既定の `Standard_B2ms`（8 GiB）では、平常時の空きは約 5.9 GiB、90% 負荷時は約 0.9 GiB です。
 VM サイズを小さくすると平常時でも発報する場合があるため、しきい値を見直してください。
 
 ![alt text](./imgs/highmem1.png)

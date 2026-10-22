@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "2051840780591447553"
+      "templateHash": "16954545597470577145"
     }
   },
   "parameters": {
@@ -58,7 +58,7 @@
     },
     "vmSize": {
       "type": "string",
-      "defaultValue": "Standard_D2s_v5"
+      "defaultValue": "Standard_B2ms"
     },
     "enableRdpPublicIp": {
       "type": "bool",
@@ -519,7 +519,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "2059242673461323473"
+              "templateHash": "14021209003162131060"
             }
           },
           "parameters": {
@@ -564,7 +564,7 @@
             },
             "vmSize": {
               "type": "string",
-              "defaultValue": "Standard_D2s_v5",
+              "defaultValue": "Standard_B2ms",
               "metadata": {
                 "description": "VM size supporting the disk metrics used by this lab"
               }

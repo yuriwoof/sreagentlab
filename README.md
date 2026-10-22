@@ -43,7 +43,9 @@ RDP が必要な場合だけ `enableRdpPublicIp=true` と、実際の接続元�
 
 イメージは `MicrosoftWindowsServer:WindowsServer:2022-datacenter-azure-edition:latest`、OS ディスクは **127 GiB / Standard_LRS / caching=None** です。
 元イメージより小さい 32 GiB へ縮小できません。
-ディスクメトリクスを利用するため、既定の VM サイズは `Standard_D2s_v5` です。
+既定の VM サイズは、2 vCPU / 8 GiB を維持しながら費用を抑える `Standard_B2ms` です。
+バースト可能 SKU のため、長時間の連続 CPU 負荷では CPU クレジットの影響を受けます。
+デプロイ先で SKU の在庫と、ラボで使うディスクメトリクスを確認してください。
 旧 Linux 構成からの OS インプレース変更は対象外です。
 旧環境は必要なデータを退避したうえで別の新規リソースグループに構築してください。
 
@@ -76,7 +78,7 @@ NSG 誤設定では、`break-nsg.sh` が優先度 100 の `ManualDenyAppGatewayH
 |---|---|
 | `prefix` | `srelab`、1～9 文字。英字で始まり英数字で終わる英数字とハイフン。生成する Windows コンピューター名を 15 文字以下にする |
 | `vmCount` | `2`、1～99。`1` では IIS 停止時にフェイルオーバー先がない |
-| `vmSize` | `Standard_D2s_v5`。変更時はディスク指標の対応を確認 |
+| `vmSize` | `Standard_B2ms`（2 vCPU / 8 GiB）。変更時はメモリアラート閾値とディスク指標の対応を確認 |
 | `adminUsername` / `adminPassword` | 管理者名を設定。パスワードはパラメータファイルに保存しない |
 | `alertEmail` | 実際の通知先に変更 |
 | `deployerPrincipalId` | Microsoft Entra ID のユーザー画面にある **オブジェクト ID**。CLI では `az ad signed-in-user show --query id -o tsv` で取得 |
@@ -158,6 +160,9 @@ App Gateway の診断設定は `AllMetrics` のみで、アクセスログなど
 LAW の `AzureActivity` に実験開始履歴を取り込む場合だけ、省略可能な `enable-activity-log.sh` によるサブスクリプション診断設定と取り込み待ちが必要です。標準のライブレポートは Activity Log を直接照会します。
 手順と権限は[SRE Agent のセットアップ](docs/sre-agent-setup.md)を参照してください。
 
+VM の自動シャットダウンは設定しません。
+VM を停止すると Application Gateway のバックエンドが異常となり、`UnhealthyHostCount` の Sev1 アラートが SRE Agent の応答対象になるためです。
+Review モードでは修復に承認が必要ですが、Autonomous の応答プランでは VM の起動などの復旧操作と計画停止が競合する可能性があります。
 VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディスクなどの料金は継続します。
 料金はリージョンと利用時間で変わるため、固定の合計金額を前提にしないでください。
 
@@ -167,15 +172,17 @@ VM を停止しても、Application Gateway、NAT Gateway、Public IP、ディ�
 
 | リソース | 前提 | 7 日間の概算 (USD) |
 |---|---|---:|
-| Windows VM | `Standard_D2s_v5` × 2、$0.216/時間 | $72.58 |
+| Windows VM | `Standard_B2ms` × 2、$0.136/時間 | $45.70 |
 | Application Gateway | Standard_v2 固定費、$0.29/時間 | $48.72 |
 | Application Gateway 容量ユニット | 1 CU、$0.01/時間 | $1.68 |
 | NAT Gateway | 1 台、約 $0.045/時間 | $7.56 |
 | Standard Static Public IP | 2 個、$0.01/時間/個 | $3.36 |
 | Standard HDD OS ディスク | S10（127 GiB OS ディスク相当）× 2、$5.89/月/個を 168/730 時間で按分 | $2.71 |
-| **固定費合計** |  | **約 $136.61** |
+| **固定費合計** |  | **約 $109.73** |
 
-Log Analytics の `Perf` / `Event` および Application Gateway メトリクスは取り込み量に応じて課金されます。東日本の Log Analytics 取り込み単価は $3.34/GB です。1 週間に 1 GB を取り込む場合、合計は **約 $139.95** です。$1 = 150 円で換算した参考値は、約 **20,000～21,000 円**です。
+VM のサイズ変更だけで、旧構成の固定費約 $136.61 から 7 日あたり約 $26.88（約 20%）削減します。
+
+Log Analytics の `Perf` / `Event` および Application Gateway メトリクスは取り込み量に応じて課金されます。性能カウンターは従来どおり 10 秒間隔で収集します。東日本の Log Analytics 取り込み単価は $3.34/GB です。連続稼働で 1 週間に 1 GB を取り込む場合、合計は **約 $113.07** です。$1 = 150 円で換算した参考値は、約 **16,500～17,000 円**です。
 
 この概算には、通信量、NAT Gateway のデータ処理量、Application Gateway の追加容量ユニット、Azure Monitor のクエリ・アラート、Chaos Studio の実験実行、SRE Agent の AAU 消費を含めません。Chaos Studio は東日本で $0.10/アクション分です。特に `enable-activity-log.sh` でサブスクリプション Activity Log の転送を有効にすると、LAW の取り込み量が増加します。デプロイ後は Cost Management の実績で確認してください。
 

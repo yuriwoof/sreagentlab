@@ -83,7 +83,7 @@ TLS 証明書と HTTPS リスナーは構成していません。
 |---|---|
 | イメージ publisher / offer | `MicrosoftWindowsServer` / `WindowsServer` |
 | SKU / version | `2022-datacenter-azure-edition` / `latest` |
-| サイズ | `Standard_D2s_v5` |
+| サイズ | `Standard_B2ms`（2 vCPU / 8 GiB） |
 | OS ディスク | 127 GiB、Standard HDD LRS（`Standard_LRS`）、ホストキャッシュなし（`None`） |
 | ネットワーク | VM サブネット、NIC への追加 NSG なし |
 | VM Public IP | なし。限定した RDP を明示的に有効化する場合だけ追加 |
@@ -91,8 +91,9 @@ TLS 証明書と HTTPS リスナーは構成していません。
 | ID | システム割り当てと共有ユーザー割り当て |
 
 承認された元イメージは 127 GiB を必要とするため、32 GiB に縮小しません。
-`Standard_D2s_v5` は、このラボで使用するディスクメトリクスに対応する VM サイズとして選択しています。
-サイズを変更する場合は対応指標とクォータを再確認してください。
+`Standard_B2ms` は、2 vCPU / 8 GiB を維持しながら費用を抑えるために選択しています。
+バースト可能 SKU なので、長時間の連続 CPU 負荷では CPU クレジットの影響を受けます。
+サイズを変更する場合を含め、デプロイ先で SKU 在庫、対応するディスク指標、クォータを再確認してください。
 `vm.bicep` はラボ用に `enableAutomaticUpdates=false` としています。
 手動構築でも OS 更新設定を照合し、本番の更新方針へそのまま流用しません。
 
