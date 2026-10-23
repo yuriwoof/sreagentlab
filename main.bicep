@@ -52,70 +52,22 @@ param sreAgentMode string = 'Review'
 @maxLength(36)
 param deployerPrincipalId string
 
-var names = [for i in range(0, vmCount): '${prefix}-vm-${padLeft(string(i + 1), 2, '0')}']
-var readerRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')
-
 // ===== Modules ===============================================================
-module network 'modules/network.bicep' = {
-  name: 'deploy-network'
+module lab 'modules/lab.bicep' = {
+  name: 'deploy-lab'
   params: {
     location: location
     prefix: prefix
     tags: tags
-    enableRdpPublicIp: enableRdpPublicIp
-    allowedRdpSource: allowedRdpSource
-  }
-}
-module vm 'modules/vm.bicep' = {
-  name: 'deploy-vm'
-  params: {
-    location: location
-    prefix: prefix
-    tags: tags
-    subnetId: network.outputs.subnetId
     adminUsername: adminUsername
     adminPassword: adminPassword
     vmSize: vmSize
     vmCount: vmCount
     enableRdpPublicIp: enableRdpPublicIp
-  }
-}
-module appGw 'modules/appgw.bicep' = {
-  name: 'deploy-appgw'
-  params: {
-    location: location
-    prefix: prefix
-    tags: tags
-    subnetId: network.outputs.appGwSubnetId
-    backendIpAddresses: vm.outputs.privateIpAddresses
-  }
-}
-module monitoring 'modules/monitoring.bicep' = {
-  name: 'deploy-monitoring'
-  params: {
-    location: location
-    prefix: prefix
-    tags: tags
-    vmIds: vm.outputs.vmIds
-    vmNames: vm.outputs.vmNames
-    appGwName: appGw.outputs.appGwName
+    allowedRdpSource: allowedRdpSource
     alertEmail: alertEmail
     lawName: lawName
   }
-}
-module chaos 'modules/chaos.bicep' = {
-  name: 'deploy-chaos'
-  params: {
-    location: location
-    prefix: prefix
-    tags: tags
-    vmNames: vm.outputs.vmNames
-    chaosIdentityClientId: vm.outputs.chaosIdentityClientId
-  }
-  dependsOn: [
-    monitoring
-    chaosAgentReaderRoles
-  ]
 }
 module sreAgent 'modules/sre-agent.bicep' = {
   name: 'deploy-sre-agent'
@@ -126,35 +78,9 @@ module sreAgent 'modules/sre-agent.bicep' = {
     agentName: sreAgentName
     accessLevel: sreAgentAccessLevel
     agentMode: sreAgentMode
-    logAnalyticsWorkspaceId: monitoring.outputs.lawId
+    logAnalyticsWorkspaceId: lab.outputs.lawId
   }
 }
-// ===== VM-scoped RBAC ========================================================
-resource targetVms 'Microsoft.Compute/virtualMachines@2024-07-01' existing = [for name in names: {
-  name: name
-}]
-resource chaosAgentReaderRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for i in range(0, vmCount): {
-  name: guid(targetVms[i].id, '${prefix}-chaos-identity', readerRoleId)
-  scope: targetVms[i]
-  properties: {
-    principalId: vm.outputs.chaosIdentityPrincipalId
-    roleDefinitionId: readerRoleId
-    principalType: 'ServicePrincipal'
-  }
-}]
-// CPU and memory target all VMs; IIS and disk IO target vm-01 only.
-var cpuBindings = [for i in range(0, vmCount): { experiment: 0, vm: i }]
-var memoryBindings = [for i in range(0, vmCount): { experiment: 1, vm: i }]
-var readerBindings = concat(cpuBindings, memoryBindings, [{ experiment: 2, vm: 0 }, { experiment: 3, vm: 0 }])
-resource experimentReaderRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for binding in readerBindings: {
-  name: guid(targetVms[binding.vm].id, prefix, string(binding.experiment), readerRoleId)
-  scope: targetVms[binding.vm]
-  properties: {
-    principalId: chaos.outputs.experimentPrincipalIds[binding.experiment]
-    roleDefinitionId: readerRoleId
-    principalType: 'ServicePrincipal'
-  }
-}]
 // ===== Deployer access =======================================================
 resource sreAgentAdminRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(resourceGroup().id, deployerPrincipalId, 'e79298df-d852-4c6d-84f9-5d13249d1e55')
@@ -176,20 +102,20 @@ resource deployerContributorRole 'Microsoft.Authorization/roleAssignments@2022-0
 }
 
 // ===== Outputs ===============================================================
-output vmNames string[] = vm.outputs.vmNames
-output vmIds string[] = vm.outputs.vmIds
-output appGwPublicIp string = appGw.outputs.appGwPublicIp
-output appGwName string = appGw.outputs.appGwName
-output appGwId string = appGw.outputs.appGwId
-output probeName string = appGw.outputs.probeName
-output nsgName string = network.outputs.nsgName
-output nsgId string = network.outputs.nsgId
-output appGwSubnetPrefix string = network.outputs.appGwSubnetPrefix
-output vmSubnetPrefix string = network.outputs.vmSubnetPrefix
-output lawName string = monitoring.outputs.lawName
-output lawId string = monitoring.outputs.lawId
-output experimentNames object = chaos.outputs.experimentNames
-output resourceGroupName string = resourceGroup().name
+output vmNames string[] = lab.outputs.vmNames
+output vmIds string[] = lab.outputs.vmIds
+output appGwPublicIp string = lab.outputs.appGwPublicIp
+output appGwName string = lab.outputs.appGwName
+output appGwId string = lab.outputs.appGwId
+output probeName string = lab.outputs.probeName
+output nsgName string = lab.outputs.nsgName
+output nsgId string = lab.outputs.nsgId
+output appGwSubnetPrefix string = lab.outputs.appGwSubnetPrefix
+output vmSubnetPrefix string = lab.outputs.vmSubnetPrefix
+output lawName string = lab.outputs.lawName
+output lawId string = lab.outputs.lawId
+output experimentNames object = lab.outputs.experimentNames
+output resourceGroupName string = lab.outputs.resourceGroupName
 output sreAgentName string = sreAgent.outputs.agentName
 // Live reports (preview) are created from chat in the SRE Agent portal; there is no ARM resource for them.
 output sreAgentPortalUrl string = sreAgent.outputs.agentPortalUrl

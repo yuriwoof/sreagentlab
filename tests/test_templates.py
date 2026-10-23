@@ -19,7 +19,11 @@ class TemplateTests(unittest.TestCase):
             raise RuntimeError("Azure CLI with Bicep is required for template tests")
         cls.templates = {}
         with tempfile.TemporaryDirectory(prefix="sreagentlab-build-") as directory:
-            for name, source in (("main", "main.bicep"), ("activity", "modules/activity-log.bicep")):
+            for name, source in (
+                ("main", "main.bicep"),
+                ("existing", "existing-agent.bicep"),
+                ("activity", "modules/activity-log.bicep"),
+            ):
                 output = Path(directory) / (name + ".json")
                 result = subprocess.run(
                     [az, "bicep", "build", "--file", str(ROOT / source), "--outfile", str(output)],
@@ -29,16 +33,93 @@ class TemplateTests(unittest.TestCase):
                     raise AssertionError(result.stdout + result.stderr)
                 cls.templates[name] = json.loads(output.read_text(encoding="utf-8"))
         cls.main = cls.templates["main"]
+        cls.existing = cls.templates["existing"]
+        cls.lab = cls.main["resources"]["lab"]["properties"]["template"]
 
     def module(self, name):
-        return self.main["resources"][name]["properties"]["template"]
+        return self.lab["resources"][name]["properties"]["template"]
 
     def test_deploy_to_azure_template_is_current(self):
-        committed = json.loads((ROOT / "azuredeploy.json").read_text(encoding="utf-8"))
+        for source, filename, template in (
+            ("main.bicep", "azuredeploy.json", self.main),
+            ("existing-agent.bicep", "azuredeploy-existing-agent.json", self.existing),
+        ):
+            with self.subTest(filename=filename):
+                committed = json.loads((ROOT / filename).read_text(encoding="utf-8"))
+                self.assertEqual(
+                    committed, template,
+                    f"{filename} is stale; run: az bicep build --file {source} --outfile {filename}",
+                )
+
+    def test_existing_agent_deploys_only_the_shared_lab(self):
+        self.assertEqual(set(self.existing["resources"]), {"lab"})
         self.assertEqual(
-            committed,
-            self.main,
-            "azuredeploy.json is stale; run: az bicep build --file main.bicep --outfile azuredeploy.json",
+            self.existing["resources"]["lab"]["properties"]["template"], self.lab,
+        )
+        self.assertEqual(
+            self.existing["resources"]["lab"]["properties"]["parameters"],
+            self.main["resources"]["lab"]["properties"]["parameters"],
+        )
+        self.assertEqual(set(self.main["resources"]), {
+            "lab", "sreAgent", "sreAgentAdminRole", "deployerContributorRole",
+        })
+        agent = self.main["resources"]["sreAgent"]["properties"]["template"]
+        self.assertIn("Microsoft.App/agents", {r["type"] for r in agent["resources"]})
+        self.assertIn("logAnalyticsWorkspaceId",
+                      self.main["resources"]["sreAgent"]["properties"]["parameters"])
+
+        def resources(template):
+            values = template["resources"]
+            for resource in values.values() if isinstance(values, dict) else values:
+                yield resource
+                child = resource.get("properties", {}).get("template")
+                if child:
+                    yield from resources(child)
+
+        for resource in resources(self.existing):
+            self.assertNotIn(resource["type"].lower(), {
+                "microsoft.app/agents", "microsoft.insights/components",
+                "microsoft.alertsmanagement/smartdetectoralertrules",
+            })
+            if resource["type"].lower() == "microsoft.authorization/roleassignments":
+                self.assertIn("Microsoft.Compute/virtualMachines", resource["scope"])
+                self.assertEqual(resource["properties"]["principalType"], "ServicePrincipal")
+        self.assertEqual(self.existing["parameters"]["adminPassword"]["type"].lower(), "securestring")
+        self.assertNotIn("defaultValue", self.existing["parameters"]["adminPassword"])
+        self.assertNotIn("defaultValue", self.existing["parameters"]["existingSreAgentResourceId"])
+        for name, definition in self.existing["parameters"].items():
+            if name != "existingSreAgentResourceId":
+                # Region guidance differs because no Agent is deployed in this path.
+                self.assertEqual(
+                    {k: v for k, v in definition.items() if k != "metadata"},
+                    {k: v for k, v in self.main["parameters"][name].items() if k != "metadata"},
+                )
+        self.assertFalse(any(name.startswith("sreAgent") or name == "deployerPrincipalId"
+                             for name in self.existing["parameters"]))
+
+    def test_existing_agent_preserves_operational_outputs(self):
+        self.assertEqual(set(self.existing["outputs"]), set(self.main["outputs"]))
+        for name, definition in self.main["outputs"].items():
+            if name not in {"sreAgentName", "sreAgentPortalUrl"}:
+                self.assertEqual(self.existing["outputs"][name], definition)
+        self.assertEqual(
+            self.existing["outputs"]["sreAgentName"]["value"],
+            "[last(split(parameters('existingSreAgentResourceId'), '/'))]",
+        )
+        self.assertIn("replace(parameters('existingSreAgentResourceId'), '/', '%2F')",
+                      self.existing["outputs"]["sreAgentPortalUrl"]["value"])
+
+    def test_reference_button_is_separate_from_main_instructions(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        main_steps = readme.split("## 設定手順\n", 1)[1].split("## 監視とコストの注意", 1)[0]
+        self.assertNotIn("azuredeploy-existing-agent.json", main_steps)
+        reference = readme.split("## 参考資料\n", 1)[1]
+        self.assertIn(
+            "[![Deploy to Azure](https://aka.ms/deploytoazurebutton)]"
+            "(https://portal.azure.com/#create/Microsoft.Template/uri/"
+            "https%3A%2F%2Fraw.githubusercontent.com%2Fyuriwoof%2Fsreagentlab%2Fmain%2F"
+            "azuredeploy-existing-agent.json)",
+            reference,
         )
 
     def test_password_and_defaults(self):
@@ -53,7 +134,7 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(p["location"]["defaultValue"], "japaneast")
         self.assertIn("newGuid()", p["lawName"]["defaultValue"])
         self.assertEqual(
-            self.main["resources"]["monitoring"]["properties"]["parameters"]["lawName"]["value"],
+            self.lab["resources"]["monitoring"]["properties"]["parameters"]["lawName"]["value"],
             "[parameters('lawName')]",
         )
         self.assertEqual(p["tags"]["defaultValue"], {"project": "sreagentlab", "env": "demo"})
@@ -148,7 +229,7 @@ class TemplateTests(unittest.TestCase):
         self.assertNotIn("nsgExperiment", self.module("chaos")["resources"])
         self.assertNotIn("nsgExperimentRole", self.main["resources"])
         for name in ("experimentReaderRoles", "chaosAgentReaderRoles"):
-            self.assertIn("Microsoft.Compute/virtualMachines", self.main["resources"][name]["scope"])
+            self.assertIn("Microsoft.Compute/virtualMachines", self.lab["resources"][name]["scope"])
 
     def test_windows_collection_and_metric_thresholds(self):
         monitoring = self.module("monitoring")
