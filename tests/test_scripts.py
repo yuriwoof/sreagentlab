@@ -276,6 +276,27 @@ class ScriptTests(unittest.TestCase):
         self.assert_success(result)
         self.assertIn("Main deployment: latest-main", result.stdout)
 
+    def test_existing_agent_deployment_is_selected_instead_of_shared_lab(self):
+        reference = deployment("existing-agent", "2028")
+        reference["properties"]["outputs"]["sreAgentPortalUrl"]["value"] = (
+            "https://portal.azure.com/#view/Microsoft_Azure_PaasServerless/"
+            "AgentFrameBlade.ReactView/id/%2Fsubscriptions%2F"
+            + SUB + "%2FresourceGroups%2Fshared-agent-rg%2Fproviders%2F"
+            "Microsoft.App%2Fagents%2Fshared-agent"
+        )
+        nested = copy.deepcopy(reference)
+        nested["name"] = "deploy-lab"
+        nested["id"] = SCOPE + "/providers/Microsoft.Resources/deployments/deploy-lab"
+        nested["properties"]["timestamp"] = "2029"
+        del nested["properties"]["outputs"]["sreAgentPortalUrl"]
+        self.config["deployments"] = [reference, nested]
+        result = self.run_script("run-chaos.sh", "cpu", env={"RESOURCE_GROUP": RG})
+        self.assert_success(result)
+        self.assertIn("Main deployment: existing-agent", result.stdout)
+        calls = self.calls(["rest"])
+        self.assertEqual(len(calls), 1)
+        self.assertIn("actual-cpu", calls[0]["args"][calls[0]["args"].index("--url") + 1])
+
     def test_explicit_deployment_and_subscription(self):
         result = self.run_script("run-chaos.sh", "cpu",
                                  env={"DEPLOYMENT_NAME": "actual-main", "SUBSCRIPTION_ID": SUB})

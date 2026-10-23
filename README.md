@@ -24,6 +24,7 @@ Azure SRE Agent と Chaos Studio を使い、Windows Server 2022 の IIS を調�
 
 ### 3. 参考資料
 
+- [既存 SRE Agent を使ってラボのみデプロイ](#既存-sre-agent-を使ってラボのみデプロイ)（専用の Deploy to Azure ボタン。本流の手順には含めない）
 - [Azure CLI でデプロイ](#azure-cli-でデプロイ)（Deploy to Azure の代わりにローカルスクリプトを使う場合）
 - [Azure portal で手動構築](docs/azure-portal-manual-setup.md)（テンプレートを使わずに構築する場合）
 - [ローカル検証](#ローカル検証)（テンプレートとスクリプトを変更した場合）
@@ -224,6 +225,65 @@ RG 削除要求の受付と削除完了は別なので、スクリプトが表�
 
 ## 参考資料
 
+### 既存 SRE Agent を使ってラボのみデプロイ
+
+SRE Agent を既にデプロイしている場合だけ使用する参考手順です。
+本流の「設定手順」は SRE Agent を含めて新規作成する構成のままです。
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fyuriwoof%2Fsreagentlab%2Fmain%2Fazuredeploy-existing-agent.json)
+
+このボタンは [`azuredeploy-existing-agent.json`](azuredeploy-existing-agent.json) を使用し、VM、ネットワーク、Application Gateway、Log Analytics、監視アラート、Chaos Studio と、それらに必要なマネージド ID と VM スコープのロール割り当てを作成します。
+SRE Agent、Agent 専用のマネージド ID、Application Insights、Smart Detection は作成せず、既存 Agent の設定、管理対象 RG、権限、利用者ロールも変更しません。
+Azure CLI や Bicep をインストールせずにデプロイできます。
+
+ボタンは公開リポジトリの `main` ブランチを参照します。
+このテンプレートが `main` に反映されてから使用してください。
+
+#### デプロイ時の入力
+
+既存 Agent を削除対象に含めないため、**既存 Agent とは別の、新規のラボ専用 RG** を選びます。
+通常構成をデプロイ済みの RG を、このテンプレートでラボ専用構成へ変換する用途には使用しません。
+既存リソースの削除や移行は行いません。
+
+| 入力 | 指定する値 |
+|---|---|
+| **Existing Sre Agent Resource Id** | 既存 SRE Agent の完全な ARM リソース ID。Azure portal の対象 Agent の **JSON ビュー** などで確認する |
+| **Admin Password** | 12～123 文字、3 種類以上の文字種を含み、管理者名を含まない Windows 管理者パスワード |
+| **Alert Email** | ラボの Azure Monitor アラート通知先 |
+| **Location** / **Prefix** | ラボのリージョンと名前の接頭辞。既定値は `japaneast` / `srelab` |
+
+Agent のリソース ID は `/subscriptions/<subscription-id>/resourceGroups/<agent-rg>/providers/Microsoft.App/agents/<agent-name>` の形式です。
+この値はポータルリンクなどの出力にだけ使い、テンプレートでは Agent の存在やアクセス権を確認しません。
+`deployerPrincipalId`、`sreAgentAccessLevel`、`sreAgentMode` の入力は不要です。
+既存 Agent のリージョンや動作モードは変更せず、`location` はラボのリソースにのみ適用します。
+そのほかのラボ用パラメータと RDP の制約は[前提条件とパラメータ](#前提条件とパラメータ)と同じです。
+Chaos Studio 用のロール割り当てを作成するため、デプロイにはラボ RG でのリソース作成権限とロール割り当て権限が必要です。
+
+#### 既存 Agent にラボを追加する
+
+デプロイ成功だけでは既存 Agent はラボへアクセスできません。
+管理対象の追加には、既存 Agent の設定を変更できる権限と、ラボ RG にロールを割り当てる権限（Owner または User Access Administrator など）が必要です。
+操作の詳細は[公式の権限管理手順](https://learn.microsoft.com/azure/sre-agent/manage-permissions)を参照してください。
+
+1. デプロイ出力 `appGwPublicIp` の `http://<IP アドレス>/` を開き、IIS ページを確認します。
+2. デプロイ出力 `sreAgentPortalUrl` で既存 Agent を開きます。
+3. **Settings** → **Managed resources** → **Add resource group** で、出力 `resourceGroupName` のラボ RG を追加して保存します。既存の管理対象 RG は残します。
+4. ラボ RG に対する Agent の権限を確認します。読み取り調査には Reader と Log Analytics Reader など、修復には実行内容に応じた書き込み権限が必要です。修復用の権限はラボ RG に限定し、承認を伴う Review 相当の動作を確認します。
+5. 新しいチャットでラボ RG を明示し、VM、Application Gateway、Log Analytics の検出と、メトリクスおよび `Perf` / `Event` の取得を確認します。
+6. アラート調査を行う場合は、既存の Azure Monitor 接続を確認し、ラボ RG を対象に応答プランを追加します。[セットアップ リファレンス](docs/sre-agent-setup.md#手順-4-応答プランを作成してアラート受信を確認)で連携権限も確認します。共有 Agent の既存の接続や応答プランを置き換えないでください。
+
+運用スクリプトが使うデプロイ出力は通常構成と共通なので、障害注入と復旧のスクリプトも使用できます。
+ラボが複数ある場合は `RESOURCE_GROUP` を明示します。
+`scripts/deploy.sh` は通常構成用のため、この参考構成のデプロイには使用しません。
+
+#### ラボだけを削除する場合
+
+既存 Agent に追加したラボ用の定期タスクと応答プランを停止し、管理対象からラボ RG を外します。
+共有 Agent 自体や、ほかの環境の設定は削除しません。
+その後、`RESOURCE_GROUP=<ラボ RG 名> bash scripts/cleanup.sh` で削除対象を確認します。
+このスクリプトは指定した RG を削除するため、既存 Agent を含む RG を指定しないでください。
+ラボ RG を削除しても、別 RG にある既存 Agent は残り、その課金も継続します。
+
 ### Azure CLI でデプロイ
 
 Deploy to Azure の代わりに、リポジトリのルートから Bash でデプロイする手順です。
@@ -262,9 +322,11 @@ Windows ではプライベートな NTFS 作業フォルダーを使用し、フ
 ### ローカル検証
 
 ```bash
-az bicep build --file main.bicep
+az bicep build --file main.bicep --outfile azuredeploy.json
+az bicep build --file existing-agent.bicep --outfile azuredeploy-existing-agent.json
 az bicep build --file modules/activity-log.bicep
 az bicep lint --file main.bicep
+az bicep lint --file existing-agent.bicep
 python3 -m unittest discover -s tests -v
 ```
 
@@ -278,7 +340,9 @@ python3 -m unittest discover -s tests -v
 
 ```text
 main.bicep / azuredeploy.json / main.parameters.json
+existing-agent.bicep / azuredeploy-existing-agent.json
 modules/
+  lab.bicep
   network.bicep / vm.bicep / appgw.bicep
   monitoring.bicep / chaos.bicep / sre-agent.bicep
   activity-log.bicep
