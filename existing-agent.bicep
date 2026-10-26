@@ -34,9 +34,6 @@ param alertEmail string
 @minLength(4)
 @maxLength(63)
 param lawName string = '${prefix}-law-${take(uniqueString(newGuid()), 6)}'
-@description('Full ARM resource ID of an existing Microsoft.App/agents resource. Used only for portal-link outputs; existence and access are not validated. Add the lab resource group in the agent portal after deployment.')
-@minLength(1)
-param existingSreAgentResourceId string
 
 module lab 'modules/lab.bicep' = {
   name: 'deploy-lab'
@@ -69,5 +66,3 @@ output lawName string = lab.outputs.lawName
 output lawId string = lab.outputs.lawId
 output experimentNames object = lab.outputs.experimentNames
 output resourceGroupName string = lab.outputs.resourceGroupName
-output sreAgentName string = last(split(existingSreAgentResourceId, '/'))
-output sreAgentPortalUrl string = 'https://portal.azure.com/#view/Microsoft_Azure_PaasServerless/AgentFrameBlade.ReactView/id/${replace(existingSreAgentResourceId, '/', '%2F')}'

@@ -265,8 +265,9 @@ class ScriptTests(unittest.TestCase):
         self.assert_success(self.run_script("run-chaos.sh", "cpu", env={"RESOURCE_GROUP": RG}))
         self.assertEqual(self.calls(["resource", "list"]), [])
 
-    def test_select_latest_successful_main_not_nested_or_failed(self):
+    def test_select_latest_successful_lab_not_chaos_or_failed(self):
         nested = deployment("deploy-chaos", "2029")
+        del nested["properties"]["outputs"]["appGwName"]
         del nested["properties"]["outputs"]["sreAgentPortalUrl"]
         failed = deployment("failed-main", "2030")
         failed["properties"]["provisioningState"] = "Failed"
@@ -274,28 +275,32 @@ class ScriptTests(unittest.TestCase):
         self.config["deployments"] += [nested, failed, newest]
         result = self.run_script("run-chaos.sh", "cpu")
         self.assert_success(result)
-        self.assertIn("Main deployment: latest-main", result.stdout)
+        self.assertIn("Lab deployment: latest-main", result.stdout)
 
-    def test_existing_agent_deployment_is_selected_instead_of_shared_lab(self):
+    def test_existing_agent_deployment_without_agent_outputs_is_selected(self):
         reference = deployment("existing-agent", "2028")
-        reference["properties"]["outputs"]["sreAgentPortalUrl"]["value"] = (
-            "https://portal.azure.com/#view/Microsoft_Azure_PaasServerless/"
-            "AgentFrameBlade.ReactView/id/%2Fsubscriptions%2F"
-            + SUB + "%2FresourceGroups%2Fshared-agent-rg%2Fproviders%2F"
-            "Microsoft.App%2Fagents%2Fshared-agent"
-        )
+        del reference["properties"]["outputs"]["sreAgentPortalUrl"]
         nested = copy.deepcopy(reference)
-        nested["name"] = "deploy-lab"
-        nested["id"] = SCOPE + "/providers/Microsoft.Resources/deployments/deploy-lab"
+        nested["name"] = "deploy-chaos"
+        nested["id"] = SCOPE + "/providers/Microsoft.Resources/deployments/deploy-chaos"
         nested["properties"]["timestamp"] = "2029"
-        del nested["properties"]["outputs"]["sreAgentPortalUrl"]
+        del nested["properties"]["outputs"]["appGwName"]
         self.config["deployments"] = [reference, nested]
         result = self.run_script("run-chaos.sh", "cpu", env={"RESOURCE_GROUP": RG})
         self.assert_success(result)
-        self.assertIn("Main deployment: existing-agent", result.stdout)
+        self.assertIn("Lab deployment: existing-agent", result.stdout)
         calls = self.calls(["rest"])
         self.assertEqual(len(calls), 1)
         self.assertIn("actual-cpu", calls[0]["args"][calls[0]["args"].index("--url") + 1])
+
+    def test_shared_lab_deployment_without_agent_outputs_is_usable(self):
+        shared = deployment("deploy-lab", "2029")
+        del shared["properties"]["outputs"]["sreAgentPortalUrl"]
+        self.config["deployments"].append(shared)
+        result = self.run_script("run-chaos.sh", "cpu")
+        self.assert_success(result)
+        self.assertIn("Lab deployment: deploy-lab", result.stdout)
+        self.assertEqual(len(self.calls(["rest"])), 1)
 
     def test_explicit_deployment_and_subscription(self):
         result = self.run_script("run-chaos.sh", "cpu",
@@ -306,7 +311,7 @@ class ScriptTests(unittest.TestCase):
         self.assertEqual(self.calls(["deployment", "group", "list"]), [])
 
     def test_query_failure_empty_invalid_or_wrong_scope_never_injects(self):
-        for mode in ("failed-query", "empty", "failed-main", "wrong-scope", "bad-agent-url", "bad-name"):
+        for mode in ("failed-query", "empty", "failed-main", "wrong-scope", "bad-gateway-name", "bad-name"):
             with self.subTest(mode=mode):
                 self.config["deployments"] = [deployment()]
                 self.config.pop("fail", None)
@@ -318,8 +323,8 @@ class ScriptTests(unittest.TestCase):
                     self.config["deployments"][0]["properties"]["provisioningState"] = "Failed"
                 elif mode == "wrong-scope":
                     self.config["deployments"][0]["id"] = "/subscriptions/other/deployments/main"
-                elif mode == "bad-agent-url":
-                    self.config["deployments"][0]["properties"]["outputs"]["sreAgentPortalUrl"]["value"] = {}
+                elif mode == "bad-gateway-name":
+                    self.config["deployments"][0]["properties"]["outputs"]["appGwName"]["value"] = {}
                 else:
                     self.config["deployments"][0]["properties"]["outputs"]["experimentNames"]["value"]["cpu"] = "$(touch injected)"
                 result = self.run_script("run-chaos.sh", "cpu")

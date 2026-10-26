@@ -4,7 +4,7 @@
 # Requires Bash, Azure CLI and Python 3 (stdlib only): Linux, Cloud Shell, Git Bash.
 # RESOURCE_GROUP: unset = auto-detect the single lab RG (deploy.sh uses rg-sreagentlab).
 # SUBSCRIPTION_ID selects an account.
-# DEPLOYMENT_NAME pins a successful main deployment; otherwise latest is selected.
+# DEPLOYMENT_NAME pins a successful lab deployment; otherwise latest is selected.
 # =============================================================================
 set -euo pipefail
 
@@ -94,24 +94,24 @@ import json,sys
 try:
     data=json.load(sys.stdin)
     rows=data if isinstance(data,list) else [data]
-    def main(d):
+    def lab(d):
         p=d.get("properties",{})
         o=p.get("outputs") or {}
         return (p.get("provisioningState","").lower()=="succeeded"
             and isinstance(o.get("experimentNames",{}).get("value"),dict)
-            and isinstance(o.get("sreAgentPortalUrl",{}).get("value"),str)
-            and bool(o["sreAgentPortalUrl"]["value"].strip()))
-    rows=[d for d in rows if main(d)]
-    if not rows: raise ValueError("No successful main deployment with experimentNames and sreAgentPortalUrl outputs; set DEPLOYMENT_NAME to a valid main deployment.")
+            and isinstance(o.get("appGwName",{}).get("value"),str)
+            and bool(o["appGwName"]["value"].strip()))
+    rows=[d for d in rows if lab(d)]
+    if not rows: raise ValueError("No successful lab deployment with experimentNames and appGwName outputs; set DEPLOYMENT_NAME to a valid lab deployment.")
     print(json.dumps(max(rows,key=lambda d:d["properties"].get("timestamp",""))))
 except (ValueError,KeyError,TypeError,AttributeError) as e: sys.exit(str(e))
-')" || die "Main deployment selection failed."
+')" || die "Lab deployment selection failed."
   DEPLOYMENT_NAME="$(printf '%s' "$selected" | json_value name)"
   deployment_id="$(printf '%s' "$selected" | json_value id)"
   expected_id="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Resources/deployments/$DEPLOYMENT_NAME"
-  [[ "${deployment_id,,}" == "${expected_id,,}" ]] || die "Main deployment ID is outside the selected subscription/resource group."
+  [[ "${deployment_id,,}" == "${expected_id,,}" ]] || die "Lab deployment ID is outside the selected subscription/resource group."
   DEPLOYMENT_OUTPUTS="$(printf '%s' "$selected" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["properties"]["outputs"]))')"
-  info "Main deployment: $DEPLOYMENT_NAME"
+  info "Lab deployment: $DEPLOYMENT_NAME"
 }
 
 output() { printf '%s' "$DEPLOYMENT_OUTPUTS" | json_value "$1.value${2:+.$2}"; }
