@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "1492102469383352583"
+      "templateHash": "14750013198003804122"
     }
   },
   "parameters": {
@@ -85,13 +85,6 @@
       "maxLength": 63,
       "metadata": {
         "description": "Log Analytics workspace name. Defaults to a random suffix per deployment; set the existing name (output lawName) to redeploy into the same workspace."
-      }
-    },
-    "existingSreAgentResourceId": {
-      "type": "string",
-      "minLength": 1,
-      "metadata": {
-        "description": "Full ARM resource ID of an existing Microsoft.App/agents resource. Used only for portal-link outputs; existence and access are not validated. Add the lab resource group in the agent portal after deployment."
       }
     }
   },
@@ -2133,14 +2126,6 @@
     "resourceGroupName": {
       "type": "string",
       "value": "[reference('lab').outputs.resourceGroupName.value]"
-    },
-    "sreAgentName": {
-      "type": "string",
-      "value": "[last(split(parameters('existingSreAgentResourceId'), '/'))]"
-    },
-    "sreAgentPortalUrl": {
-      "type": "string",
-      "value": "[format('https://portal.azure.com/#view/Microsoft_Azure_PaasServerless/AgentFrameBlade.ReactView/id/{0}', replace(parameters('existingSreAgentResourceId'), '/', '%2F'))]"
     }
   }
 }

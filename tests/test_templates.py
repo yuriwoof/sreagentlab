@@ -86,28 +86,24 @@ class TemplateTests(unittest.TestCase):
                 self.assertEqual(resource["properties"]["principalType"], "ServicePrincipal")
         self.assertEqual(self.existing["parameters"]["adminPassword"]["type"].lower(), "securestring")
         self.assertNotIn("defaultValue", self.existing["parameters"]["adminPassword"])
-        self.assertNotIn("defaultValue", self.existing["parameters"]["existingSreAgentResourceId"])
+        self.assertNotIn("existingSreAgentResourceId", self.existing["parameters"])
         for name, definition in self.existing["parameters"].items():
-            if name != "existingSreAgentResourceId":
-                # Region guidance differs because no Agent is deployed in this path.
-                self.assertEqual(
-                    {k: v for k, v in definition.items() if k != "metadata"},
-                    {k: v for k, v in self.main["parameters"][name].items() if k != "metadata"},
-                )
+            # Region guidance differs because no Agent is deployed in this path.
+            self.assertEqual(
+                {k: v for k, v in definition.items() if k != "metadata"},
+                {k: v for k, v in self.main["parameters"][name].items() if k != "metadata"},
+            )
         self.assertFalse(any(name.startswith("sreAgent") or name == "deployerPrincipalId"
                              for name in self.existing["parameters"]))
 
     def test_existing_agent_preserves_operational_outputs(self):
-        self.assertEqual(set(self.existing["outputs"]), set(self.main["outputs"]))
+        self.assertEqual(
+            set(self.existing["outputs"]),
+            set(self.main["outputs"]) - {"sreAgentName", "sreAgentPortalUrl"},
+        )
         for name, definition in self.main["outputs"].items():
             if name not in {"sreAgentName", "sreAgentPortalUrl"}:
                 self.assertEqual(self.existing["outputs"][name], definition)
-        self.assertEqual(
-            self.existing["outputs"]["sreAgentName"]["value"],
-            "[last(split(parameters('existingSreAgentResourceId'), '/'))]",
-        )
-        self.assertIn("replace(parameters('existingSreAgentResourceId'), '/', '%2F')",
-                      self.existing["outputs"]["sreAgentPortalUrl"]["value"])
 
     def test_reference_button_is_separate_from_main_instructions(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

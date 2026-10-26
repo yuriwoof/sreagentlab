@@ -247,14 +247,12 @@ Azure CLI や Bicep をインストールせずにデプロイできます。
 
 | 入力 | 指定する値 |
 |---|---|
-| **Existing Sre Agent Resource Id** | 既存 SRE Agent の完全な ARM リソース ID。Azure portal の対象 Agent の **JSON ビュー** などで確認する |
 | **Admin Password** | 12～123 文字、3 種類以上の文字種を含み、管理者名を含まない Windows 管理者パスワード |
 | **Alert Email** | ラボの Azure Monitor アラート通知先 |
 | **Location** / **Prefix** | ラボのリージョンと名前の接頭辞。既定値は `japaneast` / `srelab` |
 
-Agent のリソース ID は `/subscriptions/<subscription-id>/resourceGroups/<agent-rg>/providers/Microsoft.App/agents/<agent-name>` の形式です。
-この値はポータルリンクなどの出力にだけ使い、テンプレートでは Agent の存在やアクセス権を確認しません。
-`deployerPrincipalId`、`sreAgentAccessLevel`、`sreAgentMode` の入力は不要です。
+既存 Agent のリソース ID、`deployerPrincipalId`、`sreAgentAccessLevel`、`sreAgentMode` の入力は不要です。
+このテンプレートは `sreAgentName` と `sreAgentPortalUrl` を出力しません。
 既存 Agent のリージョンや動作モードは変更せず、`location` はラボのリソースにのみ適用します。
 そのほかのラボ用パラメータと RDP の制約は[前提条件とパラメータ](#前提条件とパラメータ)と同じです。
 Chaos Studio 用のロール割り当てを作成するため、デプロイにはラボ RG でのリソース作成権限とロール割り当て権限が必要です。
@@ -266,7 +264,7 @@ Chaos Studio 用のロール割り当てを作成するため、デプロイに�
 操作の詳細は[公式の権限管理手順](https://learn.microsoft.com/azure/sre-agent/manage-permissions)を参照してください。
 
 1. デプロイ出力 `appGwPublicIp` の `http://<IP アドレス>/` を開き、IIS ページを確認します。
-2. デプロイ出力 `sreAgentPortalUrl` で既存 Agent を開きます。
+2. Azure portal で既存 SRE Agent のリソースを開きます。
 3. **Settings** → **Managed resources** → **Add resource group** で、出力 `resourceGroupName` のラボ RG を追加して保存します。既存の管理対象 RG は残します。
 4. ラボ RG に対する Agent の権限を確認します。読み取り調査には Reader と Log Analytics Reader など、修復には実行内容に応じた書き込み権限が必要です。修復用の権限はラボ RG に限定し、承認を伴う Review 相当の動作を確認します。
 5. 新しいチャットでラボ RG を明示し、VM、Application Gateway、Log Analytics の検出と、メトリクスおよび `Perf` / `Event` の取得を確認します。
