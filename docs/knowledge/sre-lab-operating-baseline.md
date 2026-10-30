@@ -38,7 +38,7 @@
 | IIS stopped | W3SVC events, Application Gateway backend health, and IIS experiment status | Stop the IIS experiment. If the service does not recover after the experiment stops, start it with approval |
 | NSG misconfiguration | Priority of `ManualDenyAppGatewayHTTP` relative to the valid allow rule | Delete only the manually added deny rule |
 | Disk IO pressure | IOPS utilization, queue depth, and disk IO experiment status | Stop the disk IO experiment |
-| Application Gateway probe failure | IIS `/health.htm` endpoint and the probe path | Revert only the known misconfiguration from `/healthz` to `/health.htm` |
+| Application Gateway probe failure in the controlled lab scenario | Baseline record, probe path, and backend health | If the recorded fault changed only the path from `/health.htm` to `/healthz`, restore that path after review and approval |
 
 ## Prohibited Actions
 

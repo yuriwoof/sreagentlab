@@ -52,7 +52,7 @@
 - OS ディスクにもタグ拡張リソースで共通タグを適用。生成 ARM の回帰テスト 9 件成功（計 35 件）。
 - ライブレポートを SRE Agent の機能に修正: Workbook モジュールと出力を削除し、スクリプトの main デプロイ判定を `sreAgentPortalUrl` 出力に変更。DCR に Network Interface カウンターを追加。`az bicep build`、テンプレートテスト 9 件、スクリプトテスト 26 件成功。
 
-## All validation checks pass
+## 検証状況と未実施項目
 
 - [ ] Core Validation (CLI, auth, build, validate, what-if)
   - [x] Azure CLI と Bicep ビルド（main / Activity Log）

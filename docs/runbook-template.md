@@ -147,15 +147,18 @@ az network application-gateway probe show --resource-group "$RESOURCE_GROUP" \
   --gateway-name "$APPGW_NAME" --name "$PROBE_NAME" -o json
 ```
 
-同じ障害中に実施者が取得した各 VM の `/health.htm` の HTTP 応答を確認し、プローブの現在値 `/healthz` と比較します。
-ゲストの応答を取得できない場合は、正常と推測せず証拠不足として記録します。
+このラボのプローブ誤設定シナリオでは、障害注入前の正常時記録と、
+実施者が提示した `break-appgw-probe.sh` の実行結果を確認します。
+現在のプローブ設定と Backend health を読み取り操作で再取得し、
+パス以外の設定差分や想定外の症状があれば、変更せず未確認事項として記録します。
 Gateway が生成する 502 は `ResponseStatus` の frontend 5xx であり、`BackendResponseStatus` の backend 5xx とは別です。
 プローブの間隔と失敗回数だけで、Gateway 設定更新後の無停止や復旧時間の上限は保証できません。
 
 ```text
-プローブだけを /healthz から既知の正常値 /health.htm に戻す案です。
-対象 Gateway の変更権限を使用し、バックエンド、ポート、NSG は変更しません。
-想定外のカスタムパスであれば上書きせず、所有者への確認で止めます。
+Application Gateway のプローブ iis-health の path を、
+現在の /healthz から既知の正常値 /health.htm に戻す案です。
+対象 Gateway の変更権限を使います。バックエンド、ポート、NSG は変更しません。
+現在値が想定と異なる場合は上書きせず、所有者への確認で止めます。
 ```
 
 ### 承認後の実行と確認
