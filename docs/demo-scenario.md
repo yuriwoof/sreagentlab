@@ -268,29 +268,46 @@ IOPS とキューがベースラインへ戻り、HTTP 200 とバックエンド
 
 ### 事前確認
 
-プローブ `iis-health` が `/health.htm`、正常応答が HTTP 200 であることを確認します。
+[ハンズオン Level 2](sre-agent-hands-on.md#6-対応計画をカスタム-エージェントへルーティングして承認付き変更を確認する)の手順 5 と 6 に従い、実施者が Gateway 経由の HTTP 応答を確認し、SRE Agent にプローブ設定とバックエンド状態を調査させます。
+手順 6 でエージェントが正常時の結果をメモリへ保存し、別のチャットから読み直せることを確認したら、障害注入は以下のコマンドで行います。
+プローブ `iis-health` が `/health.htm`、全バックエンドが Healthy、Gateway 経由の応答が HTTP 200 であることを確認してから進みます。
 スクリプトは既知の `/health.htm` と `/healthz` の間だけを変更し、想定外のカスタムパスは拒否します。
 
 ### 障害注入
 
 ```bash
-bash scripts/break-appgw-probe.sh
+date -u '+faultInjectionStartedAtUtc=%Y-%m-%dT%H:%M:%SZ'
+bash scripts/break-appgw-probe.sh &&
+  date -u '+faultInjectionCompletedAtUtc=%Y-%m-%dT%H:%M:%SZ'
 ```
+
+失敗した場合や出力が `unchanged` の場合は調査へ進まず、現在のプローブ設定を確認します。
+`/healthz` のままで復旧が必要なら、承認を得て手動で復旧します。
 
 ### 症状確認
 
-存在しない `/healthz` の応答により全バックエンドが Unhealthy となり、Gateway が 502 を返すことを確認します。
-このシナリオでは、障害注入前に確認した正常時のプローブ設定、全バックエンドの状態、Gateway の HTTP 応答を記録しておきます。
-障害注入後は、実行結果と時刻を正常時の記録に添えてください。
+SRE Agent が、存在しない `/healthz` の応答により各バックエンドが Unhealthy になったことを確認します。
+実施者は Gateway 経由の HTTP 応答が 502 であることを別に確認します。
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' --max-time 10 "http://$APPGW_IP/"
+```
+
+502 でない場合は実際の応答と時刻を記録し、プローブの反映とバックエンド状態を確認します。
+障害注入後は、実施者がスクリプトの実行結果と時刻をインシデント スレッドに提示します。
+正常時記録は SRE Agent がメモリから読み取ります。
 リクエストを送らない場合、frontend 5xx のサンプルは増えません。
 
 ### SRE Agentへの問いかけ例
 
 ```text
 実施者がプローブのパスだけを /health.htm から /healthz に変更しました。
-正常時の記録と障害注入の実行結果を確認し、現在のプローブ設定と Backend health を照合してください。
+srelab-incident-triage を読み込み、調査してください。
+memories/synthesizedKnowledge/srelab-appgw-baseline.md の正常時記録を読み、
+別途提示する障害注入の実行結果と時刻、現在のプローブ設定と Backend health を照合し、
+同じバックエンドの正常時と障害時の状態を比較してください。
 変更レビュー依頼を示し、実行せずに停止してください。
-不足や不一致があれば、変更案を出さず確認事項を示してください。
+メモリを読めない場合や不足、不一致があれば、変更案を出さず確認事項を示してください。
 ```
 
 ### 手動で復旧する場合
@@ -303,7 +320,8 @@ bash scripts/fix-appgw-probe.sh
 同じインシデント スレッドで変更レビュー依頼を確認し、実施者がレビューと変更開始を依頼します。
 エージェントを切り替えず、書き込み操作の **Approve** の内容を確認します。
 
-どちらの方法でも、更新完了とプローブ周期を待ち、両バックエンドの Healthy と HTTP 200 を確認します。
+どちらの方法でも、更新完了とプローブ周期を待ち、両バックエンドの Healthy を確認します。
+Gateway 経由の HTTP 200 は実施者が別に確認します。
 アラート状態は Azure Monitor で別途確認します。
 
 ## 7. 定期タスク

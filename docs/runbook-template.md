@@ -147,9 +147,10 @@ az network application-gateway probe show --resource-group "$RESOURCE_GROUP" \
   --gateway-name "$APPGW_NAME" --name "$PROBE_NAME" -o json
 ```
 
-このラボのプローブ誤設定シナリオでは、障害注入前の正常時記録と、
+このラボのプローブ誤設定シナリオでは、SRE Agent が障害注入前に取得し、メモリに保存した正常時記録と、
 実施者が提示した `break-appgw-probe.sh` の実行結果を確認します。
-現在のプローブ設定と Backend health を読み取り操作で再取得し、
+正常時記録を読み取れない場合は、正常値を推測せず停止します。
+現在のプローブ設定と Backend health を読み取り操作で再取得し、同じバックエンドの正常時と障害時の状態を比較します。
 パス以外の設定差分や想定外の症状があれば、変更せず未確認事項として記録します。
 Gateway が生成する 502 は `ResponseStatus` の frontend 5xx であり、`BackendResponseStatus` の backend 5xx とは別です。
 プローブの間隔と失敗回数だけで、Gateway 設定更新後の無停止や復旧時間の上限は保証できません。
@@ -168,7 +169,8 @@ bash scripts/fix-appgw-probe.sh
 ```
 
 スクリプトは既知のパスの間だけを扱います。
-更新完了後、両バックエンドの Healthy と、ブラウザで送信したリクエストの HTTP 200 を確認します。
+更新完了後、両バックエンドが Healthy に戻ったことを確認します。
+実施者はブラウザでリクエストを送信し、Gateway 経由の HTTP 200 を別に確認します。
 切り戻しが必要な場合は変更前の構成を根拠に、再障害の影響も含めて承認を受けます。
 
 ## IIS のゲスト確認と復旧

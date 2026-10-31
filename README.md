@@ -62,7 +62,7 @@ RDP が必要な場合だけ `enableRdpPublicIp=true` と、実際の接続元�
 | 3 | IIS 停止 | Chaos: `run-chaos.sh iis`、vm-01 の W3SVC / 5 分 | 片系 Unhealthy、残る VM へ転送 | イベント ID 7036 の確認とプローブを照合、サービス復旧提案 | `run-chaos.sh stop iis`、未復旧なら `fix-iis.sh` |
 | 4 | NSG 誤設定 | Script: `break-nsg.sh` | バックエンド到達不可、502 の可能性 | 規則差分と影響確認、手動規則の復旧提案 | `fix-nsg.sh` |
 | 5 | ディスク IO 圧迫 | Chaos: `run-chaos.sh diskio`、vm-01 / 10 分 | IOPS 消費率とキュー増大、遅延の可能性 | OS ディスク制約と VM 制約の切り分け | `run-chaos.sh stop diskio`、IO と HTTP を確認 |
-| 6 | App Gateway プローブ誤設定 | Script: `break-appgw-probe.sh`、`/health.htm` → `/healthz` | 全バックエンド Unhealthy、502 | 正常時の記録と現在のプローブ設定、Backend health を照合 | `fix-appgw-probe.sh`、Healthy と HTTP 200 を確認 |
+| 6 | App Gateway プローブ誤設定 | Script: `break-appgw-probe.sh`、`/health.htm` → `/healthz` | 全バックエンド Unhealthy、502 | エージェントが取得した正常時記録と現在のプローブ設定、Backend health を照合 | `fix-appgw-probe.sh`、Healthy と実施者による HTTP 200 を確認 |
 | 7 | 定期タスク | 障害注入なし、ポータルで日次タスクを作成 | コストと変更履歴のレポート | 読み取り専用で要約し、根拠と未取得データを示す | デモ用タスクを無効化または削除 |
 | 8 | ライブレポート | 障害注入なし、SRE Agent の **ライブ レポート** で状態ダッシュボードをチャットから作成 | 全 VM と Gateway のメトリクス、IIS 停止イベント、実験の操作履歴、アラートルールの構成変更履歴（発報状態ではない）を一覧化 | 読み取り専用ツールでレポートを作成・保存し、再読み込みで最新化。チャットで直近 30 分の原因候補と証拠を報告 | 不要ならレポートを削除（復旧操作なし） |
 
