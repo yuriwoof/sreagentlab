@@ -38,7 +38,7 @@
 | IIS stopped | W3SVC events, Application Gateway backend health, and IIS experiment status | Stop the IIS experiment. If the service does not recover after the experiment stops, start it with approval |
 | NSG misconfiguration | Priority of `ManualDenyAppGatewayHTTP` relative to the valid allow rule | Delete only the manually added deny rule |
 | Disk IO pressure | IOPS utilization, queue depth, and disk IO experiment status | Stop the disk IO experiment |
-| Application Gateway probe failure in the controlled lab scenario | Baseline record, probe path, and backend health | If the recorded fault changed only the path from `/health.htm` to `/healthz`, restore that path after review and approval |
+| Application Gateway probe failure in the controlled lab scenario | Agent-collected pre-injection baseline in memory, probe path, and backend health | If the recorded fault changed only the path from `/health.htm` to `/healthz`, restore that path after review and approval |
 
 ## Prohibited Actions
 
@@ -57,6 +57,7 @@ After making a change or stopping an experiment, verify the following:
 1. The relevant Chaos experiment has ended.
 2. All Application Gateway backends are Healthy.
 3. HTTP requests through Application Gateway return status code 200.
+   For the controlled probe-failure exercise, the participant verifies this separately; backend health alone does not establish the client-facing HTTP response.
 4. The relevant metrics or guest state have returned to normal.
 5. The Azure Monitor alert has cleared.
 6. The operator, approver, change details, time, result, and unverified items have been recorded.
